@@ -1,0 +1,5 @@
+streamlit
+matplotlib
+shapely
+streamlit-drawable-canvas==0.9.3
+pillow
