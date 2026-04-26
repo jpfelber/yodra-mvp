@@ -16,6 +16,18 @@ st.set_page_config(
 st.title("California Native Planting Layout Generator")
 st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview the matching elevation, and download the result.")
 
+# -----------------------------
+# Scale settings
+# -----------------------------
+
+FEET_PER_CANVAS_UNIT = 0.25
+GRID_SPACING_UNITS = 20
+GRID_SPACING_FEET = GRID_SPACING_UNITS * FEET_PER_CANVAS_UNIT
+
+# -----------------------------
+# Plant database
+# -----------------------------
+
 PLANTS = [
     {
         "name": "Carex pansa",
@@ -87,6 +99,17 @@ HIERARCHY_COVERAGE_SPLIT = {
     "Accent Layer": 0.22,
     "Groundcover": 0.28
 }
+
+HEIGHT_VARIATION_BY_HIERARCHY = {
+    "Anchor": 0.06,
+    "Mid Layer": 0.10,
+    "Accent Layer": 0.15,
+    "Groundcover": 0.08
+}
+
+# -----------------------------
+# Helper functions
+# -----------------------------
 
 def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
@@ -213,6 +236,48 @@ def fig_to_png_bytes(fig):
     buffer.seek(0)
     return buffer
 
+def canvas_area_to_sqft(area_canvas_units):
+    return area_canvas_units * (FEET_PER_CANVAS_UNIT ** 2)
+
+def canvas_length_to_feet(length_canvas_units):
+    return length_canvas_units * FEET_PER_CANVAS_UNIT
+
+def draw_grid(ax, minx, miny, maxx, maxy):
+    start_x = math.floor((minx - 40) / GRID_SPACING_UNITS) * GRID_SPACING_UNITS
+    end_x = math.ceil((maxx + 40) / GRID_SPACING_UNITS) * GRID_SPACING_UNITS
+
+    start_y = math.floor((miny - 40) / GRID_SPACING_UNITS) * GRID_SPACING_UNITS
+    end_y = math.ceil((maxy + 40) / GRID_SPACING_UNITS) * GRID_SPACING_UNITS
+
+    x = start_x
+    while x <= end_x:
+        ax.axvline(x, linewidth=0.4, alpha=0.25)
+        x += GRID_SPACING_UNITS
+
+    y = start_y
+    while y <= end_y:
+        ax.axhline(y, linewidth=0.4, alpha=0.25)
+        y += GRID_SPACING_UNITS
+
+def get_image_aspect_ratio(image_path):
+    try:
+        img = plt.imread(image_path)
+        height_px, width_px = img.shape[:2]
+        if height_px == 0:
+            return 1
+        return width_px / height_px
+    except Exception:
+        return 1
+
+def varied_height(plant):
+    tolerance = HEIGHT_VARIATION_BY_HIERARCHY.get(plant["hierarchy"], 0.08)
+    variation = random.uniform(1 - tolerance, 1 + tolerance)
+    return plant["elevation_height"] * variation
+
+# -----------------------------
+# Sidebar
+# -----------------------------
+
 with st.sidebar:
     st.header("Site Conditions")
 
@@ -242,10 +307,18 @@ with st.sidebar:
         step=0.05
     )
 
+    st.header("Scale")
+    st.caption(f"Canvas scale: 1 grid square = {GRID_SPACING_FEET:.0f} ft")
+
+# -----------------------------
+# Main UI
+# -----------------------------
+
 left, right = st.columns([2, 1])
 
 with left:
     st.subheader("1. Draw Planting Boundary")
+    st.caption(f"Use the grid as a scale guide. Each grid square represents approximately {GRID_SPACING_FEET:.0f} ft.")
 
     canvas_result = st_canvas(
         fill_color="rgba(0, 0, 0, 0)",
@@ -270,7 +343,39 @@ with right:
             st.write(f"**{plant['name']}**")
             st.caption(f"{plant['category']} | {plant['hierarchy']} | radius: {plant['radius']}")
 
+# -----------------------------
+# Drawn boundary metrics
+# -----------------------------
+
+points_preview = get_polygon_from_canvas(canvas_result.json_data)
+
+if points_preview is not None:
+    preview_poly = Polygon(points_preview)
+
+    if not preview_poly.is_valid:
+        preview_poly = preview_poly.buffer(0)
+
+    if preview_poly.area > 0:
+        area_sqft = canvas_area_to_sqft(preview_poly.area)
+        perimeter_ft = canvas_length_to_feet(preview_poly.length)
+        minx_preview, miny_preview, maxx_preview, maxy_preview = preview_poly.bounds
+
+        width_ft = canvas_length_to_feet(maxx_preview - minx_preview)
+        depth_ft = canvas_length_to_feet(maxy_preview - miny_preview)
+
+        st.subheader("Boundary Metrics")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Approx. Area", f"{area_sqft:,.0f} sq ft")
+        c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
+        c3.metric("Approx. Width", f"{width_ft:,.0f} ft")
+        c4.metric("Approx. Depth", f"{depth_ft:,.0f} ft")
+
 generate = st.button("Generate Planting Layout", type="primary")
+
+# -----------------------------
+# Generate
+# -----------------------------
 
 if generate:
     points = get_polygon_from_canvas(canvas_result.json_data)
@@ -302,6 +407,9 @@ if generate:
             xs, ys = zip(*(points + [points[0]]))
             ax.plot(xs, ys, linewidth=2)
 
+            minx, miny, maxx, maxy = poly.bounds
+            draw_grid(ax, minx, miny, maxx, maxy)
+
             for item in placed_instances:
                 plant = item["plant"]
 
@@ -324,7 +432,6 @@ if generate:
                     fontsize=8
                 )
 
-            minx, miny, maxx, maxy = poly.bounds
             ax.set_xlim(minx - 40, maxx + 40)
             ax.set_ylim(maxy + 40, miny - 40)
             ax.set_aspect("equal")
@@ -343,9 +450,10 @@ if generate:
 
             st.caption(f"Target coverage: {round(target_coverage * 100)}%")
             st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
+            st.caption(f"Scale: 1 grid square = {GRID_SPACING_FEET:.0f} ft")
 
             st.subheader("Elevation View")
-            st.caption("Elevation uses the same plant instances generated in plan view.")
+            st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
 
             elev_fig, elev_ax = plt.subplots(figsize=(12, 4))
 
@@ -354,8 +462,10 @@ if generate:
             for item in placed_sorted:
                 plant = item["plant"]
                 image_path = plant["image"]
-                height = plant["elevation_height"]
-                width = plant["radius"] * 2.2
+
+                height = varied_height(plant)
+                aspect_ratio = get_image_aspect_ratio(image_path)
+                width = height * aspect_ratio
 
                 if os.path.exists(image_path):
                     img = plt.imread(image_path)
@@ -382,7 +492,7 @@ if generate:
 
             elev_ax.axhline(0, linewidth=1)
             elev_ax.set_xlim(minx - 40, maxx + 40)
-            elev_ax.set_ylim(0, 130)
+            elev_ax.set_ylim(0, 140)
             elev_ax.axis("off")
 
             st.pyplot(elev_fig)
