@@ -20,9 +20,9 @@ st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview t
 # Canvas + Scale settings
 # -----------------------------
 
-CANVAS_WIDTH = 900
-CANVAS_HEIGHT = 600
-MAX_SITE_FEET = 50
+CANVAS_WIDTH = 700
+CANVAS_HEIGHT = 700
+MAX_SITE_FEET = 80
 
 FEET_PER_CANVAS_UNIT = MAX_SITE_FEET / CANVAS_WIDTH
 
@@ -37,7 +37,7 @@ DENSITY_OPTIONS = {
 }
 
 SPACING_FACTOR = 0.95
-MAX_PLANTS_TOTAL = 225
+MAX_PLANTS_TOTAL = 350
 
 def feet_to_canvas_radius(width_ft):
     return (width_ft / 2) / FEET_PER_CANVAS_UNIT
@@ -58,7 +58,8 @@ PLANTS = [
         "image": "plant_images/carex-pansa.png",
         "elevation_height": 28,
         "hierarchy": "Groundcover",
-        "weight": 5
+        "weight": 5,
+        "allows_underplanting": False
     },
     {
         "name": "Salvia apiana",
@@ -71,7 +72,8 @@ PLANTS = [
         "image": "plant_images/salvia-apiana.png",
         "elevation_height": 32,
         "hierarchy": "Mid Layer",
-        "weight": 3
+        "weight": 3,
+        "allows_underplanting": False
     },
     {
         "name": "Muhlenbergia rigens",
@@ -84,20 +86,22 @@ PLANTS = [
         "image": "plant_images/muhlenbergia-rigens.png",
         "elevation_height": 50,
         "hierarchy": "Accent Layer",
-        "weight": 2
+        "weight": 2,
+        "allows_underplanting": False
     },
     {
         "name": "Arctostaphylos 'Howard McMinn'",
         "code": "AHM",
         "radius": feet_to_canvas_radius(10),
-        "category": "Structural Shrub",
+        "category": "Small Tree / Structural Canopy",
         "region": ["Coastal"],
         "sun": ["Full Sun", "Part Sun"],
         "water": ["Low"],
         "image": "plant_images/arctostaphylos-howard-mcminn.png",
         "elevation_height": 120,
         "hierarchy": "Anchor",
-        "weight": 1
+        "weight": 1,
+        "allows_underplanting": True
     },
 ]
 
@@ -124,12 +128,24 @@ HEIGHT_VARIATION_BY_HIERARCHY = {
 def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
 
-def circles_overlap(x, y, r, placed, spacing_factor):
+def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
     for p in placed:
+        existing_plant = p["plant"]
+
+        # Allow lower-layer plants to be placed beneath transparent canopy plants.
+        if existing_plant.get("allows_underplanting", False):
+            continue
+
+        # Allow canopy plants to visually overlap lower planting layers.
+        if plant is not None and plant.get("allows_underplanting", False):
+            continue
+
         distance = math.dist((x, y), (p["x"], p["y"]))
         min_distance = (r + p["radius"]) * spacing_factor
+
         if distance < min_distance:
             return True
+
     return False
 
 def weighted_choice(plants):
@@ -174,7 +190,7 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed):
 
         all_existing = existing_placed + placed_layer
 
-        if circles_overlap(x, y, r, all_existing, spacing_factor):
+        if circles_overlap(x, y, r, all_existing, spacing_factor, plant):
             continue
 
         placed_layer.append({
@@ -359,9 +375,10 @@ with right:
     else:
         for plant in selected_plants:
             plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
+            canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
             st.write(f"**{plant['name']}**")
             st.caption(
-                f"{plant['code']} | {plant['category']} | {plant['hierarchy']} | width: {plant_width_ft:.0f} ft"
+                f"{plant['code']} | {plant['category']} | {plant['hierarchy']} | width: {plant_width_ft:.0f} ft{canopy_note}"
             )
 
 # -----------------------------
@@ -439,8 +456,12 @@ if generate:
 
                         draw_grid(ax)
 
+                        # Draw non-canopy plants first.
                         for item in placed_instances:
                             plant = item["plant"]
+
+                            if plant.get("allows_underplanting", False):
+                                continue
 
                             circle = plt.Circle(
                                 (item["x"], item["y"]),
@@ -457,6 +478,33 @@ if generate:
                                 ha="center",
                                 va="center",
                                 fontsize=8
+                            )
+
+                        # Draw canopy plants last with a lighter dashed circle.
+                        for item in placed_instances:
+                            plant = item["plant"]
+
+                            if not plant.get("allows_underplanting", False):
+                                continue
+
+                            circle = plt.Circle(
+                                (item["x"], item["y"]),
+                                item["radius"],
+                                fill=False,
+                                linewidth=1.5,
+                                linestyle="--",
+                                alpha=0.75
+                            )
+                            ax.add_patch(circle)
+
+                            ax.text(
+                                item["x"],
+                                item["y"],
+                                plant["code"],
+                                ha="center",
+                                va="center",
+                                fontsize=8,
+                                fontweight="bold"
                             )
 
                         ax.set_xlim(0, CANVAS_WIDTH)
@@ -560,7 +608,8 @@ if generate:
                                 "State": state,
                                 "Region": ", ".join(plant["region"]),
                                 "Sun": ", ".join(plant["sun"]),
-                                "Water": ", ".join(plant["water"])
+                                "Water": ", ".join(plant["water"]),
+                                "Allows Underplanting": plant.get("allows_underplanting", False)
                             })
 
                         st.dataframe(schedule, width="stretch")
