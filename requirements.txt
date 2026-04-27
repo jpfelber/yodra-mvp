@@ -1,5 +1,5 @@
 streamlit
 matplotlib
 shapely
-streamlit-drawable-canvas==0.9.3
+streamlit-drawable-canvas
 pillow
