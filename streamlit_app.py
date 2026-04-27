@@ -22,16 +22,22 @@ st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview t
 
 CANVAS_WIDTH = 700
 CANVAS_HEIGHT = 700
-MAX_SITE_FEET = 30
+MAX_SITE_FEET = 50
 
 FEET_PER_CANVAS_UNIT = MAX_SITE_FEET / CANVAS_WIDTH
 
 GRID_SPACING_FEET = 5
 GRID_SPACING_UNITS = GRID_SPACING_FEET / FEET_PER_CANVAS_UNIT
 
-TARGET_COVERAGE = 0.50
+DENSITY_OPTIONS = {
+    "Low": 0.30,
+    "Moderate": 0.45,
+    "Dense": 0.60,
+    "Very Dense": 0.75
+}
+
 SPACING_FACTOR = 0.95
-MAX_PLANTS_TOTAL = 175
+MAX_PLANTS_TOTAL = 225
 
 def feet_to_canvas_radius(width_ft):
     return (width_ft / 2) / FEET_PER_CANVAS_UNIT
@@ -266,7 +272,7 @@ def canvas_area_to_sqft(area_canvas_units):
 def canvas_length_to_feet(length_canvas_units):
     return length_canvas_units * FEET_PER_CANVAS_UNIT
 
-def draw_grid(ax, minx, miny, maxx, maxy):
+def draw_grid(ax):
     x = 0
     while x <= CANVAS_WIDTH:
         ax.axvline(x, linewidth=0.4, alpha=0.25)
@@ -309,10 +315,18 @@ with st.sidebar:
     sun = st.selectbox("Sun Exposure", ["Full Sun", "Part Sun", "Shade"])
     water = st.selectbox("Water Needs", ["Low", "Moderate"])
 
+    st.header("Density")
+
+    density = st.selectbox(
+        "Coverage Density",
+        ["Low", "Moderate", "Dense", "Very Dense"]
+    )
+
+    target_coverage = DENSITY_OPTIONS[density]
+
     st.header("Scale")
     st.caption(f"Drawing area: {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft max")
     st.caption(f"Grid: 1 square = {GRID_SPACING_FEET} ft")
-    st.caption("Density is fixed for this MVP.")
 
 # -----------------------------
 # Main UI
@@ -322,7 +336,7 @@ left, right = st.columns([2, 1])
 
 with left:
     st.subheader("1. Draw Planting Boundary")
-    st.caption(f"Draw within the 30 ft x 30 ft area. Each grid square represents {GRID_SPACING_FEET} ft.")
+    st.caption(f"Draw within the {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft area. Each grid square represents {GRID_SPACING_FEET} ft.")
 
     canvas_result = st_canvas(
         fill_color="rgba(0, 0, 0, 0)",
@@ -408,12 +422,12 @@ if generate:
                     placed_instances, actual_coverage = pack_by_hierarchy(
                         poly=poly,
                         plant_pool=selected_plants,
-                        target_coverage=TARGET_COVERAGE,
+                        target_coverage=target_coverage,
                         spacing_factor=SPACING_FACTOR
                     )
 
                     if len(placed_instances) == 0:
-                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area.")
+                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area or lowering the density.")
 
                     else:
                         st.subheader("Plan View")
@@ -423,7 +437,7 @@ if generate:
                         xs, ys = zip(*(points + [points[0]]))
                         ax.plot(xs, ys, linewidth=2)
 
-                        draw_grid(ax, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+                        draw_grid(ax)
 
                         for item in placed_instances:
                             plant = item["plant"]
@@ -461,9 +475,10 @@ if generate:
                             mime="image/png"
                         )
 
-                        st.caption(f"Target coverage: {round(TARGET_COVERAGE * 100)}%")
+                        st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
                         st.caption(f"Scale: full canvas = {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft")
+                        st.caption(f"Maximum plant instances capped at {MAX_PLANTS_TOTAL} for app performance.")
 
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
