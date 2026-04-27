@@ -32,12 +32,23 @@ GRID_SPACING_UNITS = GRID_SPACING_FEET / FEET_PER_CANVAS_UNIT
 DENSITY_OPTIONS = {
     "Low": 0.30,
     "Moderate": 0.45,
-    "Dense": 0.60,
-    "Very Dense": 0.75
+    "Dense": 0.68,
+    "Very Dense": 0.90
 }
 
-SPACING_FACTOR = 0.95
-MAX_PLANTS_TOTAL = 350
+SPACING_BY_DENSITY = {
+    "Low": 1.15,
+    "Moderate": 0.95,
+    "Dense": 0.75,
+    "Very Dense": 0.55
+}
+
+MAX_PLANTS_BY_DENSITY = {
+    "Low": 180,
+    "Moderate": 260,
+    "Dense": 350,
+    "Very Dense": 500
+}
 
 def feet_to_canvas_radius(width_ft):
     return (width_ft / 2) / FEET_PER_CANVAS_UNIT
