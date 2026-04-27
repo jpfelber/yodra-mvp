@@ -111,7 +111,7 @@ PLANTS = [
         "image": "plant_images/arctostaphylos-howard-mcminn.png",
         "elevation_height": 120,
         "hierarchy": "Anchor",
-        "weight": 1,
+        "weight": 2,
         "allows_underplanting": True
     },
 ]
@@ -119,10 +119,10 @@ PLANTS = [
 HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
 
 HIERARCHY_COVERAGE_SPLIT = {
-    "Anchor": 0.18,
-    "Mid Layer": 0.32,
-    "Accent Layer": 0.22,
-    "Groundcover": 0.28
+    "Anchor": 0.24,
+    "Mid Layer": 0.30,
+    "Accent Layer": 0.20,
+    "Groundcover": 0.26
 }
 
 HEIGHT_VARIATION_BY_HIERARCHY = {
@@ -143,11 +143,9 @@ def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
     for p in placed:
         existing_plant = p["plant"]
 
-        # Allow lower-layer plants to be placed beneath transparent canopy plants.
         if existing_plant.get("allows_underplanting", False):
             continue
 
-        # Allow canopy plants to visually overlap lower planting layers.
         if plant is not None and plant.get("allows_underplanting", False):
             continue
 
@@ -166,7 +164,7 @@ def weighted_choice(plants):
     weights = [p.get("weight", 1) for p in plants]
     return random.choices(plants, weights=weights, k=1)[0]
 
-def pack_layer(poly, plants, target_area, spacing_factor, existing_placed):
+def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total):
     if not plants:
         return [], 0
 
@@ -174,12 +172,12 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed):
     placed_layer = []
     placed_area = 0
     attempts = 0
-    max_attempts = 9000
+    max_attempts = 12000
 
     while (
         placed_area < target_area
         and attempts < max_attempts
-        and len(existing_placed) + len(placed_layer) < MAX_PLANTS_TOTAL
+        and len(existing_placed) + len(placed_layer) < max_plants_total
     ):
         attempts += 1
 
@@ -215,7 +213,7 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed):
 
     return placed_layer, placed_area
 
-def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor):
+def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_plants_total):
     boundary_area = poly.area
 
     if boundary_area <= 0:
@@ -234,19 +232,15 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor):
 
         layer_target_area = total_target_area * HIERARCHY_COVERAGE_SPLIT[hierarchy]
 
-        if hierarchy == "Anchor":
-            layer_spacing = max(spacing_factor, 1.05)
-        elif hierarchy == "Groundcover":
-            layer_spacing = min(spacing_factor, 0.88)
-        else:
-            layer_spacing = spacing_factor
+        layer_spacing = spacing_factor
 
         placed_layer, placed_area = pack_layer(
             poly=poly,
             plants=layer_plants,
             target_area=layer_target_area,
             spacing_factor=layer_spacing,
-            existing_placed=all_placed
+            existing_placed=all_placed,
+            max_plants_total=max_plants_total
         )
 
         all_placed.extend(placed_layer)
@@ -350,6 +344,8 @@ with st.sidebar:
     )
 
     target_coverage = DENSITY_OPTIONS[density]
+    spacing_factor = SPACING_BY_DENSITY[density]
+    max_plants_total = MAX_PLANTS_BY_DENSITY[density]
 
     st.header("Scale")
     st.caption(f"Drawing area: {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft max")
@@ -451,7 +447,8 @@ if generate:
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
-                        spacing_factor=SPACING_FACTOR
+                        spacing_factor=spacing_factor,
+                        max_plants_total=max_plants_total
                     )
 
                     if len(placed_instances) == 0:
@@ -467,7 +464,6 @@ if generate:
 
                         draw_grid(ax)
 
-                        # Draw non-canopy plants first.
                         for item in placed_instances:
                             plant = item["plant"]
 
@@ -491,7 +487,6 @@ if generate:
                                 fontsize=8
                             )
 
-                        # Draw canopy plants last with a lighter dashed circle.
                         for item in placed_instances:
                             plant = item["plant"]
 
@@ -537,7 +532,7 @@ if generate:
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
                         st.caption(f"Scale: full canvas = {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft")
-                        st.caption(f"Maximum plant instances capped at {MAX_PLANTS_TOTAL} for app performance.")
+                        st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
 
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
