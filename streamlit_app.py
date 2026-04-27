@@ -37,10 +37,10 @@ DENSITY_OPTIONS = {
 }
 
 SPACING_BY_DENSITY = {
-    "Low": 1.15,
-    "Moderate": 0.95,
-    "Dense": 0.75,
-    "Very Dense": 0.55
+    "Low": 1.30,
+    "Moderate": 1.15,
+    "Dense": 1.05,
+    "Very Dense": 1.00
 }
 
 MAX_PLANTS_BY_DENSITY = {
@@ -143,12 +143,18 @@ def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
     for p in placed:
         existing_plant = p["plant"]
 
-        if existing_plant.get("allows_underplanting", False):
+        existing_allows_underplanting = existing_plant.get("allows_underplanting", False)
+        current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False)
+
+        # Allow lower-layer plants to sit inside the canopy circle of Arctostaphylos.
+        if existing_allows_underplanting and not current_allows_underplanting:
             continue
 
-        if plant is not None and plant.get("allows_underplanting", False):
+        # Allow Arctostaphylos canopy to overlap lower-layer plants.
+        if current_allows_underplanting and not existing_allows_underplanting:
             continue
 
+        # Everything else must not overlap.
         distance = math.dist((x, y), (p["x"], p["y"]))
         min_distance = (r + p["radius"]) * spacing_factor
 
@@ -172,7 +178,7 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
     placed_layer = []
     placed_area = 0
     attempts = 0
-    max_attempts = 12000
+    max_attempts = 16000
 
     while (
         placed_area < target_area
@@ -231,7 +237,6 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
             continue
 
         layer_target_area = total_target_area * HIERARCHY_COVERAGE_SPLIT[hierarchy]
-
         layer_spacing = spacing_factor
 
         placed_layer, placed_area = pack_layer(
