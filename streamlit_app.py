@@ -8,16 +8,13 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, Point
 from streamlit_drawable_canvas import st_canvas
 
-st.set_page_config(
-    page_title="AI-Powered Planting Design Engine",
-    layout="wide"
-)
+st.set_page_config(page_title="AI-Powered Planting Design Engine", layout="wide")
 
 st.title("AI-Powered Planting Design Engine")
-st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview the matching elevation, and download the result.")
+st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview elevation, and download results.")
 
 # -----------------------------
-# Canvas + Scale settings
+# Canvas + Scale
 # -----------------------------
 
 CANVAS_WIDTH = 900
@@ -29,83 +26,41 @@ FEET_PER_CANVAS_UNIT = MAX_SITE_FEET / CANVAS_WIDTH
 GRID_SPACING_FEET = 5
 GRID_SPACING_UNITS = GRID_SPACING_FEET / FEET_PER_CANVAS_UNIT
 
+# -----------------------------
+# Density
+# -----------------------------
+
 DENSITY_OPTIONS = {
     "Low": 0.30,
     "Moderate": 0.45,
-    "Dense": 0.60,
-    "Very Dense": 0.75
+    "Dense": 0.65,
+    "Very Dense": 0.90
 }
 
-SPACING_FACTOR = 0.95
+SPACING_BY_DENSITY = {
+    "Low": 1.20,
+    "Moderate": 1.00,
+    "Dense": 0.82,
+    "Very Dense": 0.62   # tighter packing
+}
+
 MAX_PLANTS_TOTAL = 350
 
-def feet_to_canvas_radius(width_ft):
-    return (width_ft / 2) / FEET_PER_CANVAS_UNIT
+def feet_to_radius(ft):
+    return (ft / 2) / FEET_PER_CANVAS_UNIT
 
 # -----------------------------
-# Plant database
+# Plants
 # -----------------------------
 
 PLANTS = [
-    {
-        "name": "Carex pansa",
-        "code": "CP",
-        "radius": feet_to_canvas_radius(2),
-        "category": "Groundcover",
-        "region": ["Coastal"],
-        "sun": ["Full Sun", "Part Sun"],
-        "water": ["Low"],
-        "image": "plant_images/carex-pansa.png",
-        "elevation_height": 28,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Salvia apiana",
-        "code": "SA",
-        "radius": feet_to_canvas_radius(4),
-        "category": "Shrub",
-        "region": ["Coastal"],
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "image": "plant_images/salvia-apiana.png",
-        "elevation_height": 32,
-        "hierarchy": "Mid Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Muhlenbergia rigens",
-        "code": "MR",
-        "radius": feet_to_canvas_radius(5),
-        "category": "Grass",
-        "region": ["Coastal"],
-        "sun": ["Full Sun", "Part Sun"],
-        "water": ["Low"],
-        "image": "plant_images/muhlenbergia-rigens.png",
-        "elevation_height": 50,
-        "hierarchy": "Accent Layer",
-        "weight": 2,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Arctostaphylos 'Howard McMinn'",
-        "code": "AHM",
-        "radius": feet_to_canvas_radius(10),
-        "category": "Small Tree / Structural Canopy",
-        "region": ["Coastal"],
-        "sun": ["Full Sun", "Part Sun"],
-        "water": ["Low"],
-        "image": "plant_images/arctostaphylos-howard-mcminn.png",
-        "elevation_height": 120,
-        "hierarchy": "Anchor",
-        "weight": 8,
-        "allows_underplanting": True
-    },
+    {"name": "Carex pansa","code":"CP","radius":feet_to_radius(2),"hierarchy":"Groundcover","sun":["Full Sun","Part Sun"],"water":["Low"],"weight":5,"allows_underplanting":False},
+    {"name": "Salvia apiana","code":"SA","radius":feet_to_radius(4),"hierarchy":"Mid Layer","sun":["Full Sun"],"water":["Low"],"weight":3,"allows_underplanting":False},
+    {"name": "Muhlenbergia rigens","code":"MR","radius":feet_to_radius(5),"hierarchy":"Accent Layer","sun":["Full Sun","Part Sun"],"water":["Low"],"weight":2,"allows_underplanting":False},
+    {"name": "Arctostaphylos 'Howard McMinn'","code":"AHM","radius":feet_to_radius(10),"hierarchy":"Anchor","sun":["Full Sun","Part Sun"],"water":["Low"],"weight":8,"allows_underplanting":True},
 ]
 
-HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
+HIERARCHY_ORDER = ["Anchor","Mid Layer","Accent Layer","Groundcover"]
 
 HIERARCHY_COVERAGE_SPLIT = {
     "Anchor": 0.45,
@@ -114,207 +69,86 @@ HIERARCHY_COVERAGE_SPLIT = {
     "Groundcover": 0.20
 }
 
-HEIGHT_VARIATION_BY_HIERARCHY = {
-    "Anchor": 0.06,
-    "Mid Layer": 0.10,
-    "Accent Layer": 0.15,
-    "Groundcover": 0.08
-}
-
 # -----------------------------
-# Helper functions
+# Helpers
 # -----------------------------
 
-def circle_inside(poly, x, y, r):
-    return poly.contains(Point(x, y).buffer(r))
+def circle_inside(poly,x,y,r):
+    return poly.contains(Point(x,y).buffer(r))
 
-def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
+def circles_overlap(x,y,r,placed,spacing,plant):
     for p in placed:
-        existing_plant = p["plant"]
+        existing = p["plant"]
 
-        # Allow lower-layer plants to be placed beneath transparent canopy plants.
-        if existing_plant.get("allows_underplanting", False):
+        if existing.get("allows_underplanting",False):
+            continue
+        if plant.get("allows_underplanting",False):
             continue
 
-        # Allow canopy plants to visually overlap lower planting layers.
-        if plant is not None and plant.get("allows_underplanting", False):
-            continue
-
-        distance = math.dist((x, y), (p["x"], p["y"]))
-        min_distance = (r + p["radius"]) * spacing_factor
-
-        if distance < min_distance:
+        d = math.dist((x,y),(p["x"],p["y"]))
+        if d < (r + p["radius"]) * spacing:
             return True
-
     return False
 
 def weighted_choice(plants):
-    if not plants:
-        return None
+    return random.choices(plants,[p["weight"] for p in plants])[0]
 
-    weights = [p.get("weight", 1) for p in plants]
-    return random.choices(plants, weights=weights, k=1)[0]
+def pack_layer(poly,plants,target_area,spacing,existing):
+    minx,miny,maxx,maxy = poly.bounds
+    placed=[]
+    area=0
+    attempts=0
 
-def pack_layer(poly, plants, target_area, spacing_factor, existing_placed):
-    if not plants:
-        return [], 0
+    while area < target_area and attempts < 9000 and len(existing)+len(placed) < MAX_PLANTS_TOTAL:
+        attempts+=1
+        plant=weighted_choice(plants)
+        r=plant["radius"]
 
-    minx, miny, maxx, maxy = poly.bounds
-    placed_layer = []
-    placed_area = 0
-    attempts = 0
-    max_attempts = 9000
+        x=random.uniform(minx+r,maxx-r)
+        y=random.uniform(miny+r,maxy-r)
 
-    while (
-        placed_area < target_area
-        and attempts < max_attempts
-        and len(existing_placed) + len(placed_layer) < MAX_PLANTS_TOTAL
-    ):
-        attempts += 1
-
-        plant = weighted_choice(plants)
-
-        if plant is None:
-            break
-
-        r = plant["radius"]
-
-        if maxx - minx < r * 2 or maxy - miny < r * 2:
-            break
-
-        x = random.uniform(minx + r, maxx - r)
-        y = random.uniform(miny + r, maxy - r)
-
-        if not circle_inside(poly, x, y, r):
+        if not circle_inside(poly,x,y,r):
             continue
 
-        all_existing = existing_placed + placed_layer
-
-        if circles_overlap(x, y, r, all_existing, spacing_factor, plant):
+        if circles_overlap(x,y,r,existing+placed,spacing,plant):
             continue
 
-        placed_layer.append({
-            "x": x,
-            "y": y,
-            "radius": r,
-            "plant": plant
-        })
+        placed.append({"x":x,"y":y,"radius":r,"plant":plant})
+        area += math.pi*r*r
 
-        placed_area += math.pi * (r ** 2)
+    return placed,area
 
-    return placed_layer, placed_area
+def pack(poly,plants,target,spacing):
+    total_area = poly.area
+    target_area = total_area * target
 
-def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor):
-    boundary_area = poly.area
+    all_plants=[]
+    placed_area=0
 
-    if boundary_area <= 0:
-        return [], 0
-
-    total_target_area = boundary_area * target_coverage
-
-    all_placed = []
-    total_placed_area = 0
-
-    for hierarchy in HIERARCHY_ORDER:
-        layer_plants = [p for p in plant_pool if p["hierarchy"] == hierarchy]
-
-        if not layer_plants:
+    for h in HIERARCHY_ORDER:
+        group=[p for p in plants if p["hierarchy"]==h]
+        if not group:
             continue
 
-        layer_target_area = total_target_area * HIERARCHY_COVERAGE_SPLIT[hierarchy]
+        layer_target = target_area * HIERARCHY_COVERAGE_SPLIT[h]
 
-        if hierarchy == "Anchor":
-            layer_spacing = max(spacing_factor, 1.05)
-        elif hierarchy == "Groundcover":
-            layer_spacing = min(spacing_factor, 0.88)
-        else:
-            layer_spacing = spacing_factor
+        # NO loosening — everything respects density
+        layer_spacing = spacing
 
-        placed_layer, placed_area = pack_layer(
-            poly=poly,
-            plants=layer_plants,
-            target_area=layer_target_area,
-            spacing_factor=layer_spacing,
-            existing_placed=all_placed
-        )
+        placed,area = pack_layer(poly,group,layer_target,layer_spacing,all_plants)
 
-        all_placed.extend(placed_layer)
-        total_placed_area += placed_area
+        all_plants.extend(placed)
+        placed_area += area
 
-    return all_placed, total_placed_area / boundary_area
+    return all_plants, placed_area / total_area
 
-def filter_plants(region, sun, water):
-    return [
-        plant for plant in PLANTS
-        if region in plant["region"]
-        and sun in plant["sun"]
-        and water in plant["water"]
-    ]
-
-def get_polygon_from_canvas(canvas_json):
-    if canvas_json is None:
-        return None
-
-    objects = canvas_json.get("objects", [])
-
-    if len(objects) == 0:
-        return None
-
-    obj = objects[0]
-
-    if "path" not in obj:
-        return None
-
-    points = []
-
-    for p in obj["path"]:
-        if len(p) >= 3:
-            points.append((p[1], p[2]))
-
-    if len(points) < 3:
-        return None
-
-    return points
-
-def fig_to_png_bytes(fig):
-    buffer = BytesIO()
-    fig.savefig(buffer, format="png", dpi=200, bbox_inches="tight", transparent=False)
-    buffer.seek(0)
-    return buffer
-
-def canvas_area_to_sqft(area_canvas_units):
-    return area_canvas_units * (FEET_PER_CANVAS_UNIT ** 2)
-
-def canvas_length_to_feet(length_canvas_units):
-    return length_canvas_units * FEET_PER_CANVAS_UNIT
-
-def draw_grid(ax):
-    x = 0
-    while x <= CANVAS_WIDTH:
-        ax.axvline(x, linewidth=0.4, alpha=0.25)
-        x += GRID_SPACING_UNITS
-
-    y = 0
-    while y <= CANVAS_HEIGHT:
-        ax.axhline(y, linewidth=0.4, alpha=0.25)
-        y += GRID_SPACING_UNITS
-
-def get_image_aspect_ratio(image_path):
-    try:
-        img = plt.imread(image_path)
-        height_px, width_px = img.shape[:2]
-
-        if height_px == 0:
-            return 1
-
-        return width_px / height_px
-    except Exception:
-        return 1
-
-def varied_height(plant):
-    tolerance = HEIGHT_VARIATION_BY_HIERARCHY.get(plant["hierarchy"], 0.08)
-    variation = random.uniform(1 - tolerance, 1 + tolerance)
-    return plant["elevation_height"] * variation
+def get_polygon(data):
+    if not data: return None
+    objs=data.get("objects",[])
+    if not objs: return None
+    path=objs[0].get("path",[])
+    pts=[(p[1],p[2]) for p in path if len(p)>=3]
+    return pts if len(pts)>=3 else None
 
 # -----------------------------
 # Sidebar
@@ -323,297 +157,71 @@ def varied_height(plant):
 with st.sidebar:
     st.markdown("### by The Landscape Library")
 
-    st.header("Site Conditions")
+    sun = st.selectbox("Sun Exposure",["Full Sun","Part Sun","Shade"])
+    water = st.selectbox("Water Needs",["Low","Moderate"])
 
-    state = st.selectbox("State", ["California"])
-    region = "Coastal"
+    density = st.selectbox("Density",["Low","Moderate","Dense","Very Dense"])
 
-    sun = st.selectbox("Sun Exposure", ["Full Sun", "Part Sun", "Shade"])
-    water = st.selectbox("Water Needs", ["Low", "Moderate"])
+    target = DENSITY_OPTIONS[density]
+    spacing = SPACING_BY_DENSITY[density]
 
-    st.header("Density")
-
-    density = st.selectbox(
-        "Coverage Density",
-        ["Low", "Moderate", "Dense", "Very Dense"]
-    )
-
-    target_coverage = DENSITY_OPTIONS[density]
-
-    st.header("Scale")
-    st.caption(f"Drawing area: {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft max")
-    st.caption(f"Grid: 1 square = {GRID_SPACING_FEET} ft")
+    st.caption(f"{MAX_SITE_FEET}ft x {MAX_SITE_FEET}ft")
+    st.caption(f"Grid: {GRID_SPACING_FEET}ft")
 
 # -----------------------------
-# Main UI
+# Canvas
 # -----------------------------
 
-left, right = st.columns([2, 1])
+left,right = st.columns([2,1])
 
 with left:
-    st.subheader("1. Draw Planting Boundary")
-    st.caption(f"Draw within the {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft area. Each grid square represents {GRID_SPACING_FEET} ft.")
-
-    canvas_result = st_canvas(
-        fill_color="rgba(0, 0, 0, 0)",
-        stroke_width=3,
-        stroke_color="#111111",
-        background_color="#f7f7f2",
+    canvas = st_canvas(
         height=CANVAS_HEIGHT,
         width=CANVAS_WIDTH,
         drawing_mode="polygon",
-        key="canvas",
+        stroke_width=3,
+        stroke_color="#111",
+        background_color="#f7f7f2",
+        key="canvas"
     )
 
 with right:
-    st.subheader("2. Selected Plant Palette")
-
-    selected_plants = filter_plants(region, sun, water)
-
-    if len(selected_plants) == 0:
-        st.warning("No plants match these conditions yet.")
-    else:
-        for plant in selected_plants:
-            plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
-            canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
-            st.write(f"**{plant['name']}**")
-            st.caption(
-                f"{plant['code']} | {plant['category']} | {plant['hierarchy']} | width: {plant_width_ft:.0f} ft{canopy_note}"
-            )
-
-# -----------------------------
-# Boundary metrics
-# -----------------------------
-
-points_preview = get_polygon_from_canvas(canvas_result.json_data)
-
-if points_preview is not None:
-    preview_poly = Polygon(points_preview)
-
-    if not preview_poly.is_valid:
-        preview_poly = preview_poly.buffer(0)
-
-    if preview_poly.area > 0:
-        area_sqft = canvas_area_to_sqft(preview_poly.area)
-        perimeter_ft = canvas_length_to_feet(preview_poly.length)
-        minx_preview, miny_preview, maxx_preview, maxy_preview = preview_poly.bounds
-
-        width_ft = canvas_length_to_feet(maxx_preview - minx_preview)
-        depth_ft = canvas_length_to_feet(maxy_preview - miny_preview)
-
-        st.subheader("Boundary Metrics")
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Approx. Area", f"{area_sqft:,.0f} sq ft")
-        c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
-        c3.metric("Approx. Width", f"{width_ft:,.0f} ft")
-        c4.metric("Approx. Depth", f"{depth_ft:,.0f} ft")
-
-generate = st.button("Generate Planting Layout", type="primary")
+    st.subheader("Plant Palette")
+    for p in PLANTS:
+        st.write(p["name"])
 
 # -----------------------------
 # Generate
 # -----------------------------
 
-if generate:
-    try:
-        with st.spinner("Generating planting plan and elevation view..."):
-            points = get_polygon_from_canvas(canvas_result.json_data)
+if st.button("Generate Planting Layout"):
 
-            if points is None:
-                st.warning("Draw a closed polygon boundary first.")
+    with st.spinner("Generating..."):
 
-            elif len(selected_plants) == 0:
-                st.warning("No plants are available for the selected site conditions.")
+        pts = get_polygon(canvas.json_data)
 
-            else:
-                poly = Polygon(points)
+        if not pts:
+            st.warning("Draw boundary first")
+        else:
+            poly=Polygon(pts)
 
-                if not poly.is_valid:
-                    poly = poly.buffer(0)
+            placed,coverage = pack(poly,PLANTS,target,spacing)
 
-                if poly.area <= 0:
-                    st.warning("The drawn boundary is invalid. Try drawing a clearer shape.")
+            fig,ax = plt.subplots(figsize=(10,6))
 
-                else:
-                    placed_instances, actual_coverage = pack_by_hierarchy(
-                        poly=poly,
-                        plant_pool=selected_plants,
-                        target_coverage=target_coverage,
-                        spacing_factor=SPACING_FACTOR
-                    )
+            xs,ys = zip(*(pts+[pts[0]]))
+            ax.plot(xs,ys)
 
-                    if len(placed_instances) == 0:
-                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area or lowering the density.")
+            for p in placed:
+                c = plt.Circle((p["x"],p["y"]),p["radius"],fill=False)
+                ax.add_patch(c)
+                ax.text(p["x"],p["y"],p["plant"]["code"],ha="center",va="center",fontsize=7)
 
-                    else:
-                        st.subheader("Plan View")
+            ax.set_xlim(0,CANVAS_WIDTH)
+            ax.set_ylim(CANVAS_HEIGHT,0)
+            ax.set_aspect("equal")
+            ax.axis("off")
 
-                        fig, ax = plt.subplots(figsize=(10, 10))
+            st.pyplot(fig)
 
-                        xs, ys = zip(*(points + [points[0]]))
-                        ax.plot(xs, ys, linewidth=2)
-
-                        draw_grid(ax)
-
-                        # Draw non-canopy plants first.
-                        for item in placed_instances:
-                            plant = item["plant"]
-
-                            if plant.get("allows_underplanting", False):
-                                continue
-
-                            circle = plt.Circle(
-                                (item["x"], item["y"]),
-                                item["radius"],
-                                fill=False,
-                                linewidth=1.2
-                            )
-                            ax.add_patch(circle)
-
-                            ax.text(
-                                item["x"],
-                                item["y"],
-                                plant["code"],
-                                ha="center",
-                                va="center",
-                                fontsize=8
-                            )
-
-                        # Draw canopy plants last with a lighter dashed circle.
-                        for item in placed_instances:
-                            plant = item["plant"]
-
-                            if not plant.get("allows_underplanting", False):
-                                continue
-
-                            circle = plt.Circle(
-                                (item["x"], item["y"]),
-                                item["radius"],
-                                fill=False,
-                                linewidth=1.5,
-                                linestyle="--",
-                                alpha=0.75
-                            )
-                            ax.add_patch(circle)
-
-                            ax.text(
-                                item["x"],
-                                item["y"],
-                                plant["code"],
-                                ha="center",
-                                va="center",
-                                fontsize=8,
-                                fontweight="bold"
-                            )
-
-                        ax.set_xlim(0, CANVAS_WIDTH)
-                        ax.set_ylim(CANVAS_HEIGHT, 0)
-                        ax.set_aspect("equal")
-                        ax.axis("off")
-
-                        st.pyplot(fig)
-
-                        plan_png = fig_to_png_bytes(fig)
-
-                        st.download_button(
-                            label="Download Plan PNG",
-                            data=plan_png,
-                            file_name="yodra-planting-plan.png",
-                            mime="image/png"
-                        )
-
-                        st.caption(f"Target coverage: {round(target_coverage * 100)}%")
-                        st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
-                        st.caption(f"Scale: full canvas = {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft")
-                        st.caption(f"Maximum plant instances capped at {MAX_PLANTS_TOTAL} for app performance.")
-
-                        st.subheader("Elevation View")
-                        st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
-
-                        elev_fig, elev_ax = plt.subplots(figsize=(12, 4))
-
-                        placed_sorted = sorted(placed_instances, key=lambda item: item["x"])
-
-                        for item in placed_sorted:
-                            plant = item["plant"]
-                            image_path = plant["image"]
-
-                            height = varied_height(plant)
-                            aspect_ratio = get_image_aspect_ratio(image_path)
-                            width = height * aspect_ratio
-
-                            if os.path.exists(image_path):
-                                img = plt.imread(image_path)
-
-                                elev_ax.imshow(
-                                    img,
-                                    extent=(
-                                        item["x"] - width / 2,
-                                        item["x"] + width / 2,
-                                        0,
-                                        height
-                                    ),
-                                    zorder=2
-                                )
-                            else:
-                                elev_ax.text(
-                                    item["x"],
-                                    height / 2,
-                                    plant["code"],
-                                    ha="center",
-                                    va="center",
-                                    fontsize=8
-                                )
-
-                        elev_ax.axhline(0, linewidth=1)
-                        elev_ax.set_xlim(0, CANVAS_WIDTH)
-                        elev_ax.set_ylim(0, 140)
-                        elev_ax.axis("off")
-
-                        st.pyplot(elev_fig)
-
-                        elevation_png = fig_to_png_bytes(elev_fig)
-
-                        st.download_button(
-                            label="Download Elevation PNG",
-                            data=elevation_png,
-                            file_name="yodra-planting-elevation.png",
-                            mime="image/png"
-                        )
-
-                        st.subheader("Plant Count")
-
-                        counts = {}
-                        for item in placed_instances:
-                            plant = item["plant"]
-                            counts[plant["name"]] = counts.get(plant["name"], 0) + 1
-
-                        st.write(counts)
-
-                        st.subheader("Plant Schedule")
-
-                        schedule = []
-                        for plant_name, count in counts.items():
-                            plant = next(p for p in PLANTS if p["name"] == plant_name)
-                            plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
-
-                            schedule.append({
-                                "Code": plant["code"],
-                                "Plant": plant["name"],
-                                "Category": plant["category"],
-                                "Hierarchy": plant["hierarchy"],
-                                "Width": f"{plant_width_ft:.0f} ft",
-                                "Count": count,
-                                "State": state,
-                                "Region": ", ".join(plant["region"]),
-                                "Sun": ", ".join(plant["sun"]),
-                                "Water": ", ".join(plant["water"]),
-                                "Allows Underplanting": plant.get("allows_underplanting", False)
-                            })
-
-                        st.dataframe(schedule, width="stretch")
-
-    except Exception as e:
-        st.error("The app crashed while generating the layout.")
-        st.exception(e)
+            st.caption(f"Coverage: {round(coverage*100)}%")
