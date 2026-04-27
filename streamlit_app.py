@@ -22,7 +22,7 @@ st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview t
 
 CANVAS_WIDTH = 900
 CANVAS_HEIGHT = 600
-MAX_SITE_FEET = 80
+MAX_SITE_FEET = 50
 
 FEET_PER_CANVAS_UNIT = MAX_SITE_FEET / CANVAS_WIDTH
 
