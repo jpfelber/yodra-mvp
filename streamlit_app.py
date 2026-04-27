@@ -16,12 +16,20 @@ st.set_page_config(
 st.title("AI-Powered Planting Design Engine")
 st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview the matching elevation, and download the result.")
 
+# -----------------------------
+# Scale settings
+# -----------------------------
+
 FEET_PER_CANVAS_UNIT = 0.25
 GRID_SPACING_UNITS = 20
 GRID_SPACING_FEET = GRID_SPACING_UNITS * FEET_PER_CANVAS_UNIT
 
 def feet_to_canvas_radius(width_ft):
     return (width_ft / 2) / FEET_PER_CANVAS_UNIT
+
+# -----------------------------
+# Plant database
+# -----------------------------
 
 PLANTS = [
     {
@@ -93,6 +101,10 @@ HEIGHT_VARIATION_BY_HIERARCHY = {
     "Accent Layer": 0.15,
     "Groundcover": 0.08
 }
+
+# -----------------------------
+# Helper functions
+# -----------------------------
 
 def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
@@ -275,6 +287,10 @@ def varied_height(plant):
     variation = random.uniform(1 - tolerance, 1 + tolerance)
     return plant["elevation_height"] * variation
 
+# -----------------------------
+# Sidebar
+# -----------------------------
+
 with st.sidebar:
     st.markdown("### by The Landscape Library")
 
@@ -311,6 +327,10 @@ with st.sidebar:
     st.header("Scale")
     st.caption(f"Canvas scale: 1 grid square = {GRID_SPACING_FEET:.0f} ft")
 
+# -----------------------------
+# Main UI
+# -----------------------------
+
 left, right = st.columns([2, 1])
 
 with left:
@@ -343,6 +363,10 @@ with right:
                 f"{plant['code']} | {plant['category']} | {plant['hierarchy']} | width: {plant_width_ft:.0f} ft"
             )
 
+# -----------------------------
+# Boundary metrics
+# -----------------------------
+
 points_preview = get_polygon_from_canvas(canvas_result.json_data)
 
 if points_preview is not None:
@@ -369,168 +393,177 @@ if points_preview is not None:
 
 generate = st.button("Generate Planting Layout", type="primary")
 
+# -----------------------------
+# Generate
+# -----------------------------
+
 if generate:
-    with st.spinner("Generating planting plan and elevation view..."):
-        points = get_polygon_from_canvas(canvas_result.json_data)
+    try:
+        with st.spinner("Generating planting plan and elevation view..."):
+            points = get_polygon_from_canvas(canvas_result.json_data)
 
-        if points is None:
-            st.warning("Draw a closed polygon boundary first.")
+            if points is None:
+                st.warning("Draw a closed polygon boundary first.")
 
-        elif len(selected_plants) == 0:
-            st.warning("No plants are available for the selected site conditions.")
-
-        else:
-            poly = Polygon(points)
-
-            if not poly.is_valid:
-                poly = poly.buffer(0)
-
-            if poly.area <= 0:
-                st.warning("The drawn boundary is invalid. Try drawing a clearer shape.")
+            elif len(selected_plants) == 0:
+                st.warning("No plants are available for the selected site conditions.")
 
             else:
-                placed_instances, actual_coverage = pack_by_hierarchy(
-                    poly=poly,
-                    plant_pool=selected_plants,
-                    target_coverage=target_coverage,
-                    spacing_factor=spacing_factor
-                )
+                poly = Polygon(points)
 
-                if len(placed_instances) == 0:
-                    st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area or lowering the density.")
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+
+                if poly.area <= 0:
+                    st.warning("The drawn boundary is invalid. Try drawing a clearer shape.")
 
                 else:
-                    st.subheader("Plan View")
-
-                    fig, ax = plt.subplots(figsize=(10, 7))
-
-                    xs, ys = zip(*(points + [points[0]]))
-                    ax.plot(xs, ys, linewidth=2)
-
-                    minx, miny, maxx, maxy = poly.bounds
-                    draw_grid(ax, minx, miny, maxx, maxy)
-
-                    for item in placed_instances:
-                        plant = item["plant"]
-
-                        circle = plt.Circle(
-                            (item["x"], item["y"]),
-                            item["radius"],
-                            fill=False,
-                            linewidth=1.2
-                        )
-                        ax.add_patch(circle)
-
-                        ax.text(
-                            item["x"],
-                            item["y"],
-                            plant["code"],
-                            ha="center",
-                            va="center",
-                            fontsize=8
-                        )
-
-                    ax.set_xlim(minx - 40, maxx + 40)
-                    ax.set_ylim(maxy + 40, miny - 40)
-                    ax.set_aspect("equal")
-                    ax.axis("off")
-
-                    st.pyplot(fig)
-
-                    plan_png = fig_to_png_bytes(fig)
-
-                    st.download_button(
-                        label="Download Plan PNG",
-                        data=plan_png,
-                        file_name="yodra-planting-plan.png",
-                        mime="image/png"
+                    placed_instances, actual_coverage = pack_by_hierarchy(
+                        poly=poly,
+                        plant_pool=selected_plants,
+                        target_coverage=target_coverage,
+                        spacing_factor=spacing_factor
                     )
 
-                    st.caption(f"Target coverage: {round(target_coverage * 100)}%")
-                    st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
-                    st.caption(f"Scale: 1 grid square = {GRID_SPACING_FEET:.0f} ft")
+                    if len(placed_instances) == 0:
+                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area or lowering the density.")
 
-                    st.subheader("Elevation View")
-                    st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
+                    else:
+                        st.subheader("Plan View")
 
-                    elev_fig, elev_ax = plt.subplots(figsize=(12, 4))
+                        fig, ax = plt.subplots(figsize=(10, 7))
 
-                    placed_sorted = sorted(placed_instances, key=lambda item: item["x"])
+                        xs, ys = zip(*(points + [points[0]]))
+                        ax.plot(xs, ys, linewidth=2)
 
-                    for item in placed_sorted:
-                        plant = item["plant"]
-                        image_path = plant["image"]
+                        minx, miny, maxx, maxy = poly.bounds
+                        draw_grid(ax, minx, miny, maxx, maxy)
 
-                        height = varied_height(plant)
-                        aspect_ratio = get_image_aspect_ratio(image_path)
-                        width = height * aspect_ratio
+                        for item in placed_instances:
+                            plant = item["plant"]
 
-                        if os.path.exists(image_path):
-                            img = plt.imread(image_path)
-
-                            elev_ax.imshow(
-                                img,
-                                extent=(
-                                    item["x"] - width / 2,
-                                    item["x"] + width / 2,
-                                    0,
-                                    height
-                                ),
-                                zorder=2
+                            circle = plt.Circle(
+                                (item["x"], item["y"]),
+                                item["radius"],
+                                fill=False,
+                                linewidth=1.2
                             )
-                        else:
-                            elev_ax.text(
+                            ax.add_patch(circle)
+
+                            ax.text(
                                 item["x"],
-                                height / 2,
+                                item["y"],
                                 plant["code"],
                                 ha="center",
                                 va="center",
                                 fontsize=8
                             )
 
-                    elev_ax.axhline(0, linewidth=1)
-                    elev_ax.set_xlim(minx - 40, maxx + 40)
-                    elev_ax.set_ylim(0, 140)
-                    elev_ax.axis("off")
+                        ax.set_xlim(minx - 40, maxx + 40)
+                        ax.set_ylim(maxy + 40, miny - 40)
+                        ax.set_aspect("equal")
+                        ax.axis("off")
 
-                    st.pyplot(elev_fig)
+                        st.pyplot(fig)
 
-                    elevation_png = fig_to_png_bytes(elev_fig)
+                        plan_png = fig_to_png_bytes(fig)
 
-                    st.download_button(
-                        label="Download Elevation PNG",
-                        data=elevation_png,
-                        file_name="yodra-planting-elevation.png",
-                        mime="image/png"
-                    )
+                        st.download_button(
+                            label="Download Plan PNG",
+                            data=plan_png,
+                            file_name="yodra-planting-plan.png",
+                            mime="image/png"
+                        )
 
-                    st.subheader("Plant Count")
+                        st.caption(f"Target coverage: {round(target_coverage * 100)}%")
+                        st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
+                        st.caption(f"Scale: 1 grid square = {GRID_SPACING_FEET:.0f} ft")
 
-                    counts = {}
-                    for item in placed_instances:
-                        plant = item["plant"]
-                        counts[plant["name"]] = counts.get(plant["name"], 0) + 1
+                        st.subheader("Elevation View")
+                        st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
 
-                    st.write(counts)
+                        elev_fig, elev_ax = plt.subplots(figsize=(12, 4))
 
-                    st.subheader("Plant Schedule")
+                        placed_sorted = sorted(placed_instances, key=lambda item: item["x"])
 
-                    schedule = []
-                    for plant_name, count in counts.items():
-                        plant = next(p for p in PLANTS if p["name"] == plant_name)
-                        plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
+                        for item in placed_sorted:
+                            plant = item["plant"]
+                            image_path = plant["image"]
 
-                        schedule.append({
-                            "Code": plant["code"],
-                            "Plant": plant["name"],
-                            "Category": plant["category"],
-                            "Hierarchy": plant["hierarchy"],
-                            "Width": f"{plant_width_ft:.0f} ft",
-                            "Count": count,
-                            "State": state,
-                            "Region": ", ".join(plant["region"]),
-                            "Sun": ", ".join(plant["sun"]),
-                            "Water": ", ".join(plant["water"])
-                        })
+                            height = varied_height(plant)
+                            aspect_ratio = get_image_aspect_ratio(image_path)
+                            width = height * aspect_ratio
 
-                    st.dataframe(schedule, use_container_width=True)
+                            if os.path.exists(image_path):
+                                img = plt.imread(image_path)
+
+                                elev_ax.imshow(
+                                    img,
+                                    extent=(
+                                        item["x"] - width / 2,
+                                        item["x"] + width / 2,
+                                        0,
+                                        height
+                                    ),
+                                    zorder=2
+                                )
+                            else:
+                                elev_ax.text(
+                                    item["x"],
+                                    height / 2,
+                                    plant["code"],
+                                    ha="center",
+                                    va="center",
+                                    fontsize=8
+                                )
+
+                        elev_ax.axhline(0, linewidth=1)
+                        elev_ax.set_xlim(minx - 40, maxx + 40)
+                        elev_ax.set_ylim(0, 140)
+                        elev_ax.axis("off")
+
+                        st.pyplot(elev_fig)
+
+                        elevation_png = fig_to_png_bytes(elev_fig)
+
+                        st.download_button(
+                            label="Download Elevation PNG",
+                            data=elevation_png,
+                            file_name="yodra-planting-elevation.png",
+                            mime="image/png"
+                        )
+
+                        st.subheader("Plant Count")
+
+                        counts = {}
+                        for item in placed_instances:
+                            plant = item["plant"]
+                            counts[plant["name"]] = counts.get(plant["name"], 0) + 1
+
+                        st.write(counts)
+
+                        st.subheader("Plant Schedule")
+
+                        schedule = []
+                        for plant_name, count in counts.items():
+                            plant = next(p for p in PLANTS if p["name"] == plant_name)
+                            plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
+
+                            schedule.append({
+                                "Code": plant["code"],
+                                "Plant": plant["name"],
+                                "Category": plant["category"],
+                                "Hierarchy": plant["hierarchy"],
+                                "Width": f"{plant_width_ft:.0f} ft",
+                                "Count": count,
+                                "State": state,
+                                "Region": ", ".join(plant["region"]),
+                                "Sun": ", ".join(plant["sun"]),
+                                "Water": ", ".join(plant["water"])
+                            })
+
+                        st.dataframe(schedule, width="stretch")
+
+    except Exception as e:
+        st.error("The app crashed while generating the layout.")
+        st.exception(e)
