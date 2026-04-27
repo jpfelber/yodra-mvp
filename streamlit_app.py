@@ -100,7 +100,7 @@ PLANTS = [
         "image": "plant_images/arctostaphylos-howard-mcminn.png",
         "elevation_height": 120,
         "hierarchy": "Anchor",
-        "weight": 1,
+        "weight": 4,
         "allows_underplanting": True
     },
 ]
@@ -108,10 +108,10 @@ PLANTS = [
 HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
 
 HIERARCHY_COVERAGE_SPLIT = {
-    "Anchor": 0.18,
-    "Mid Layer": 0.32,
-    "Accent Layer": 0.22,
-    "Groundcover": 0.28
+    "Anchor": 0.30,
+    "Mid Layer": 0.28,
+    "Accent Layer": 0.18,
+    "Groundcover": 0.24
 }
 
 HEIGHT_VARIATION_BY_HIERARCHY = {
