@@ -20,9 +20,9 @@ st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview t
 # Canvas + Scale settings
 # -----------------------------
 
-CANVAS_WIDTH = 700
-CANVAS_HEIGHT = 700
-MAX_SITE_FEET = 50
+CANVAS_WIDTH = 900
+CANVAS_HEIGHT = 600
+MAX_SITE_FEET = 80
 
 FEET_PER_CANVAS_UNIT = MAX_SITE_FEET / CANVAS_WIDTH
 
