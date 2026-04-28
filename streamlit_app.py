@@ -1,3 +1,46 @@
+import streamlit as st
+
+# -------------------------
+# PASSWORD PROTECTION
+# -------------------------
+
+PASSWORD = st.secrets["APP_PASSWORD"]
+
+def check_password():
+
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        return True
+
+    st.title("YODRA")
+    st.markdown("### Private Beta Access")
+
+    password = st.text_input(
+        "Enter access password",
+        type="password"
+    )
+
+    if st.button("Enter"):
+
+        if password == PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+
+        else:
+            st.error("Incorrect password")
+
+    return False
+
+
+if not check_password():
+    st.stop()
+
+# -------------------------
+# YOUR APP BELOW
+# -------------------------
+
 import random
 import math
 import os
