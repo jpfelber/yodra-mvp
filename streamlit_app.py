@@ -46,7 +46,6 @@ import math
 import os
 from io import BytesIO
 
-import streamlit as st
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, Point
 from streamlit_drawable_canvas import st_canvas
@@ -103,56 +102,182 @@ def feet_to_canvas_radius(width_ft):
 PLANTS = [
     {
         "name": "Carex pansa",
+        "common_name": "Sand Dune Sedge",
         "code": "CP",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 7,
+        "usda_max": 10,
+        "sun": ["Full Sun-Part Shade"],
+        "water": ["Moderate-Low"],
+        "spread_ft": 2,
+        "height_ft": 1,
         "radius": feet_to_canvas_radius(2),
-        "category": "Groundcover",
-        "region": ["Coastal"],
-        "sun": ["Full Sun", "Part Sun"],
-        "water": ["Low"],
-        "image": "plant_images/carex-pansa.png",
+        "form": "Grass",
+        "role": "Matrix",
+        "style": ["Naturalistic", "Contemporary"],
+        "texture": "Fine",
+        "color_tone": "Green",
+        "visual_weight": 1,
+        "seasonality": "Evergreen",
+        "image": "plant_images/carex-pansa.webp",
         "elevation_height": 28,
         "hierarchy": "Groundcover",
         "weight": 5,
         "allows_underplanting": False
     },
     {
-        "name": "Salvia apiana",
-        "code": "SA",
-        "radius": feet_to_canvas_radius(4),
-        "category": "Shrub",
-        "region": ["Coastal"],
+        "name": "Eriogonum latifolium",
+        "common_name": "Coast Buckwheat",
+        "code": "EL",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 8,
+        "usda_max": 10,
         "sun": ["Full Sun"],
         "water": ["Low"],
-        "image": "plant_images/salvia-apiana.png",
-        "elevation_height": 32,
+        "spread_ft": 2,
+        "height_ft": 2,
+        "radius": feet_to_canvas_radius(2),
+        "form": "Perennial",
+        "role": "Accent",
+        "style": ["Naturalistic", "Contemporary"],
+        "texture": "Medium",
+        "color_tone": "Silver-Green",
+        "visual_weight": 2,
+        "seasonality": "Evergreen",
+        "image": "plant_images/eriogonum-latifolium.webp",
+        "elevation_height": 34,
+        "hierarchy": "Accent Layer",
+        "weight": 3,
+        "allows_underplanting": False
+    },
+    {
+        "name": "Festuca californica",
+        "common_name": "California Fescue",
+        "code": "FC",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 7,
+        "usda_max": 10,
+        "sun": ["Full Sun-Part Shade"],
+        "water": ["Low-Moderate"],
+        "spread_ft": 2,
+        "height_ft": 2,
+        "radius": feet_to_canvas_radius(2),
+        "form": "Grass",
+        "role": "Matrix",
+        "style": ["Naturalistic", "Contemporary"],
+        "texture": "Fine",
+        "color_tone": "Blue-Green",
+        "visual_weight": 1,
+        "seasonality": "Evergreen",
+        "image": "plant_images/festuca-californica.webp",
+        "elevation_height": 34,
+        "hierarchy": "Groundcover",
+        "weight": 4,
+        "allows_underplanting": False
+    },
+    {
+        "name": "Salvia spathacea",
+        "common_name": "Hummingbird Sage",
+        "code": "SS",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 8,
+        "usda_max": 10,
+        "sun": ["Part Shade-Full Shade"],
+        "water": ["Moderate"],
+        "spread_ft": 4,
+        "height_ft": 2,
+        "radius": feet_to_canvas_radius(4),
+        "form": "Perennial",
+        "role": "Accent",
+        "style": ["Naturalistic", "Contemporary"],
+        "texture": "Bold",
+        "color_tone": "Dark Green",
+        "visual_weight": 2,
+        "seasonality": "Evergreen",
+        "image": "plant_images/salvia-spathacea.webp",
+        "elevation_height": 42,
         "hierarchy": "Mid Layer",
         "weight": 3,
         "allows_underplanting": False
     },
     {
-        "name": "Muhlenbergia rigens",
-        "code": "MR",
-        "radius": feet_to_canvas_radius(5),
-        "category": "Grass",
-        "region": ["Coastal"],
-        "sun": ["Full Sun", "Part Sun"],
-        "water": ["Low"],
-        "image": "plant_images/muhlenbergia-rigens.png",
-        "elevation_height": 50,
+        "name": "Iris douglasiana",
+        "common_name": "Douglas Iris",
+        "code": "ID",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 7,
+        "usda_max": 10,
+        "sun": ["Full Sun-Part Shade"],
+        "water": ["Moderate"],
+        "spread_ft": 2,
+        "height_ft": 2,
+        "radius": feet_to_canvas_radius(2),
+        "form": "Perennial",
+        "role": "Accent",
+        "style": ["Naturalistic"],
+        "texture": "Medium",
+        "color_tone": "Green",
+        "visual_weight": 2,
+        "seasonality": "Evergreen",
+        "image": "plant_images/iris-douglasiana.webp",
+        "elevation_height": 42,
         "hierarchy": "Accent Layer",
-        "weight": 2,
+        "weight": 3,
         "allows_underplanting": False
     },
     {
-        "name": "Arctostaphylos 'Howard McMinn'",
-        "code": "AHM",
-        "radius": feet_to_canvas_radius(10),
-        "category": "Small Tree / Structural Canopy",
-        "region": ["Coastal"],
-        "sun": ["Full Sun", "Part Sun"],
+        "name": "Arbutus menziesii",
+        "common_name": "Pacific Madrone",
+        "code": "AM",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 7,
+        "usda_max": 9,
+        "sun": ["Full Sun-Part Shade"],
         "water": ["Low"],
-        "image": "plant_images/arctostaphylos-howard-mcminn.png",
-        "elevation_height": 120,
+        "spread_ft": 20,
+        "height_ft": 40,
+        "radius": feet_to_canvas_radius(20),
+        "form": "Tree",
+        "role": "Canopy",
+        "style": ["Naturalistic", "Contemporary"],
+        "texture": "Bold",
+        "color_tone": "Dark Green",
+        "visual_weight": 3,
+        "seasonality": "Evergreen",
+        "image": "plant_images/arbutus-menziesii.webp",
+        "elevation_height": 135,
+        "hierarchy": "Anchor",
+        "weight": 1,
+        "allows_underplanting": True
+    },
+    {
+        "name": "Arctostaphylos densiflora 'Howard McMinn'",
+        "common_name": "Howard McMinn Manzanita",
+        "code": "AHM",
+        "state": ["California"],
+        "climate": ["Coastal"],
+        "usda_min": 8,
+        "usda_max": 10,
+        "sun": ["Full Sun-Part Shade"],
+        "water": ["Low"],
+        "spread_ft": 8,
+        "height_ft": 7,
+        "radius": feet_to_canvas_radius(8),
+        "form": "Shrub",
+        "role": "Structure",
+        "style": ["Naturalistic", "Contemporary"],
+        "texture": "Medium",
+        "color_tone": "Grey-Green",
+        "visual_weight": 3,
+        "seasonality": "Evergreen",
+        "image": "plant_images/arctostaphylos-howard-mcminn.webp",
+        "elevation_height": 105,
         "hierarchy": "Anchor",
         "weight": 2,
         "allows_underplanting": True
@@ -189,15 +314,12 @@ def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
         existing_allows_underplanting = existing_plant.get("allows_underplanting", False)
         current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False)
 
-        # Allow lower-layer plants to sit inside the canopy circle of Arctostaphylos.
         if existing_allows_underplanting and not current_allows_underplanting:
             continue
 
-        # Allow Arctostaphylos canopy to overlap lower-layer plants.
         if current_allows_underplanting and not existing_allows_underplanting:
             continue
 
-        # Everything else must not overlap.
         distance = math.dist((x, y), (p["x"], p["y"]))
         min_distance = (r + p["radius"]) * spacing_factor
 
@@ -280,13 +402,12 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
             continue
 
         layer_target_area = total_target_area * HIERARCHY_COVERAGE_SPLIT[hierarchy]
-        layer_spacing = spacing_factor
 
         placed_layer, placed_area = pack_layer(
             poly=poly,
             plants=layer_plants,
             target_area=layer_target_area,
-            spacing_factor=layer_spacing,
+            spacing_factor=spacing_factor,
             existing_placed=all_placed,
             max_plants_total=max_plants_total
         )
@@ -296,12 +417,14 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
 
     return all_placed, total_placed_area / boundary_area
 
-def filter_plants(region, sun, water):
+def filter_plants(state, climate, sun, water, style):
     return [
         plant for plant in PLANTS
-        if region in plant["region"]
+        if state in plant["state"]
+        and climate in plant["climate"]
         and sun in plant["sun"]
         and water in plant["water"]
+        and style in plant["style"]
     ]
 
 def get_polygon_from_canvas(canvas_json):
@@ -376,13 +499,27 @@ def varied_height(plant):
 with st.sidebar:
     st.markdown("### by The Landscape Library")
 
-    st.header("Site Conditions")
+    st.header("Site Parameters")
 
     state = st.selectbox("State", ["California"])
-    region = "Coastal"
+    climate = st.selectbox("Climate", ["Coastal"])
 
-    sun = st.selectbox("Sun Exposure", ["Full Sun", "Part Sun", "Shade"])
-    water = st.selectbox("Water Needs", ["Low", "Moderate"])
+    sun = st.selectbox(
+        "Sun Exposure",
+        ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Shade"]
+    )
+
+    water = st.selectbox(
+        "Water Needs",
+        ["Low", "Moderate-Low", "Low-Moderate", "Moderate"]
+    )
+
+    st.header("Design Style")
+
+    style = st.selectbox(
+        "Style",
+        ["Naturalistic", "Contemporary", "Formal"]
+    )
 
     st.header("Density")
 
@@ -423,17 +560,16 @@ with left:
 with right:
     st.subheader("2. Selected Plant Palette")
 
-    selected_plants = filter_plants(region, sun, water)
+    selected_plants = filter_plants(state, climate, sun, water, style)
 
     if len(selected_plants) == 0:
-        st.warning("No plants match these conditions yet.")
+        st.warning("No plants match these parameters yet. Try adjusting sun exposure, water needs, or style.")
     else:
         for plant in selected_plants:
-            plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
             canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
             st.write(f"**{plant['name']}**")
             st.caption(
-                f"{plant['code']} | {plant['category']} | {plant['hierarchy']} | width: {plant_width_ft:.0f} ft{canopy_note}"
+                f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | spread: {plant['spread_ft']} ft{canopy_note}"
             )
 
 # -----------------------------
@@ -479,7 +615,7 @@ if generate:
                 st.warning("Draw a closed polygon boundary first.")
 
             elif len(selected_plants) == 0:
-                st.warning("No plants are available for the selected site conditions.")
+                st.warning("No plants are available for the selected site parameters.")
 
             else:
                 poly = Polygon(points)
@@ -500,7 +636,7 @@ if generate:
                     )
 
                     if len(placed_instances) == 0:
-                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area or lowering the density.")
+                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area, lowering the density, or adjusting the plant parameters.")
 
                     else:
                         st.subheader("Plan View")
@@ -650,19 +786,25 @@ if generate:
                         schedule = []
                         for plant_name, count in counts.items():
                             plant = next(p for p in PLANTS if p["name"] == plant_name)
-                            plant_width_ft = plant["radius"] * 2 * FEET_PER_CANVAS_UNIT
 
                             schedule.append({
                                 "Code": plant["code"],
-                                "Plant": plant["name"],
-                                "Category": plant["category"],
-                                "Hierarchy": plant["hierarchy"],
-                                "Width": f"{plant_width_ft:.0f} ft",
+                                "Botanical Name": plant["name"],
+                                "Common Name": plant["common_name"],
+                                "Form": plant["form"],
+                                "Role": plant["role"],
+                                "Style": ", ".join(plant["style"]),
+                                "Texture": plant["texture"],
+                                "Color Tone": plant["color_tone"],
+                                "Visual Weight": plant["visual_weight"],
+                                "Spread Ft": plant["spread_ft"],
+                                "Height Ft": plant["height_ft"],
                                 "Count": count,
                                 "State": state,
-                                "Region": ", ".join(plant["region"]),
+                                "Climate": ", ".join(plant["climate"]),
                                 "Sun": ", ".join(plant["sun"]),
                                 "Water": ", ".join(plant["water"]),
+                                "Seasonality": plant["seasonality"],
                                 "Allows Underplanting": plant.get("allows_underplanting", False)
                             })
 
