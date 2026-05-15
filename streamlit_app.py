@@ -7,7 +7,6 @@ import streamlit as st
 PASSWORD = st.secrets["APP_PASSWORD"]
 
 def check_password():
-
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
@@ -17,17 +16,12 @@ def check_password():
     st.title("YODRA")
     st.markdown("### Private Beta Access")
 
-    password = st.text_input(
-        "Enter access password",
-        type="password"
-    )
+    password = st.text_input("Enter access password", type="password")
 
     if st.button("Enter"):
-
         if password == PASSWORD:
             st.session_state.authenticated = True
             st.rerun()
-
         else:
             st.error("Incorrect password")
 
@@ -44,9 +38,11 @@ if not check_password():
 import random
 import math
 import os
-from io import BytesIO
+import html
+from io import BytesIO, StringIO
 
 import matplotlib.pyplot as plt
+from PIL import Image
 from shapely.geometry import Polygon, Point
 from streamlit_drawable_canvas import st_canvas
 
@@ -56,20 +52,19 @@ st.set_page_config(
 )
 
 st.title("AI-Powered Planting Design Engine")
-st.caption("Draw a planting boundary, generate a hierarchy-based plan, preview the matching elevation, and download the result.")
+st.caption("Draw a planting boundary or upload a scaled bed image, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
 
 # -----------------------------
 # Canvas + Scale settings
 # -----------------------------
 
-CANVAS_WIDTH = 900
-CANVAS_HEIGHT = 600
-MAX_SITE_FEET = 50
-
-FEET_PER_CANVAS_UNIT = MAX_SITE_FEET / CANVAS_WIDTH
+MAX_CANVAS_WIDTH = 900
+MAX_CANVAS_HEIGHT = 600
+DEFAULT_BED_LENGTH_FEET = 50
+DEFAULT_BED_WIDTH_FEET = 50
+MAX_BED_FEET = 50
 
 GRID_SPACING_FEET = 5
-GRID_SPACING_UNITS = GRID_SPACING_FEET / FEET_PER_CANVAS_UNIT
 
 DENSITY_OPTIONS = {
     "Low": 0.30,
@@ -92,8 +87,10 @@ MAX_PLANTS_BY_DENSITY = {
     "Very Dense": 500
 }
 
+# Placeholder used only while the plant database is being defined.
+# Runtime radii are recalculated after the active bed scale is known.
 def feet_to_canvas_radius(width_ft):
-    return (width_ft / 2) / FEET_PER_CANVAS_UNIT
+    return width_ft / 2
 
 # -----------------------------
 # Plant database
@@ -648,6 +645,7 @@ PLANTS = [
     },
 ]
 
+
 HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
 
 HIERARCHY_COVERAGE_SPLIT = {
@@ -668,8 +666,44 @@ HEIGHT_VARIATION_BY_HIERARCHY = {
 # Helper functions
 # -----------------------------
 
+def clamp_dimension(value, fallback):
+    try:
+        value = float(value)
+    except Exception:
+        return fallback
+    return max(1, min(value, MAX_BED_FEET))
+
+
+def get_canvas_setup(length_ft, width_ft):
+    """Return canvas dimensions and true feet-per-canvas-unit scale.
+
+    length_ft is horizontal. width_ft is vertical/depth.
+    The canvas preserves the real bed aspect ratio and fits inside the max pixel bounds.
+    """
+    length_ft = clamp_dimension(length_ft, DEFAULT_BED_LENGTH_FEET)
+    width_ft = clamp_dimension(width_ft, DEFAULT_BED_WIDTH_FEET)
+
+    pixels_per_foot = min(MAX_CANVAS_WIDTH / length_ft, MAX_CANVAS_HEIGHT / width_ft)
+    canvas_width = max(250, int(round(length_ft * pixels_per_foot)))
+    canvas_height = max(250, int(round(width_ft * pixels_per_foot)))
+    feet_per_canvas_unit = 1 / pixels_per_foot
+    grid_spacing_units = GRID_SPACING_FEET / feet_per_canvas_unit
+
+    return canvas_width, canvas_height, feet_per_canvas_unit, grid_spacing_units
+
+
+def make_runtime_plant_pool(plants, feet_per_canvas_unit):
+    runtime_plants = []
+    for plant in plants:
+        p = plant.copy()
+        p["radius"] = (p["spread_ft"] / 2) / feet_per_canvas_unit
+        runtime_plants.append(p)
+    return runtime_plants
+
+
 def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
+
 
 def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
     for p in placed:
@@ -692,12 +726,14 @@ def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
 
     return False
 
+
 def weighted_choice(plants):
     if not plants:
         return None
 
     weights = [p.get("weight", 1) for p in plants]
     return random.choices(plants, weights=weights, k=1)[0]
+
 
 def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total):
     if not plants:
@@ -717,7 +753,6 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
         attempts += 1
 
         plant = weighted_choice(plants)
-
         if plant is None:
             break
 
@@ -737,16 +772,11 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
         if circles_overlap(x, y, r, all_existing, spacing_factor, plant):
             continue
 
-        placed_layer.append({
-            "x": x,
-            "y": y,
-            "radius": r,
-            "plant": plant
-        })
-
+        placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
         placed_area += math.pi * (r ** 2)
 
     return placed_layer, placed_area
+
 
 def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_plants_total):
     boundary_area = poly.area
@@ -755,7 +785,6 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
         return [], 0
 
     total_target_area = boundary_area * target_coverage
-
     all_placed = []
     total_placed_area = 0
 
@@ -781,6 +810,7 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
 
     return all_placed, total_placed_area / boundary_area
 
+
 def sun_is_compatible(selected_sun, plant_sun_options):
     sun_compatibility = {
         "Full Sun": ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Sun"],
@@ -790,8 +820,8 @@ def sun_is_compatible(selected_sun, plant_sun_options):
     }
 
     compatible_values = sun_compatibility.get(selected_sun, [selected_sun])
-
     return any(sun_value in compatible_values for sun_value in plant_sun_options)
+
 
 def water_is_compatible(selected_water, plant_water_options):
     water_compatibility = {
@@ -802,12 +832,12 @@ def water_is_compatible(selected_water, plant_water_options):
     }
 
     compatible_values = water_compatibility.get(selected_water, [selected_water])
-
     return any(water_value in compatible_values for water_value in plant_water_options)
 
-def filter_plants(state, climate, sun, water, style):
+
+def filter_plants(plant_database, state, climate, sun, water, style):
     return [
-        plant for plant in PLANTS
+        plant for plant in plant_database
         if state in plant["state"]
         and climate in plant["climate"]
         and style in plant["style"]
@@ -815,22 +845,20 @@ def filter_plants(state, climate, sun, water, style):
         and water_is_compatible(water, plant["water"])
     ]
 
+
 def get_polygon_from_canvas(canvas_json):
     if canvas_json is None:
         return None
 
     objects = canvas_json.get("objects", [])
-
     if len(objects) == 0:
         return None
 
     obj = objects[0]
-
     if "path" not in obj:
         return None
 
     points = []
-
     for p in obj["path"]:
         if len(p) >= 3:
             points.append((p[1], p[2]))
@@ -840,45 +868,144 @@ def get_polygon_from_canvas(canvas_json):
 
     return points
 
+
+def rectangle_points(canvas_width, canvas_height):
+    return [(0, 0), (canvas_width, 0), (canvas_width, canvas_height), (0, canvas_height)]
+
+
 def fig_to_png_bytes(fig):
     buffer = BytesIO()
     fig.savefig(buffer, format="png", dpi=200, bbox_inches="tight", transparent=False)
     buffer.seek(0)
     return buffer
 
-def canvas_area_to_sqft(area_canvas_units):
-    return area_canvas_units * (FEET_PER_CANVAS_UNIT ** 2)
 
-def canvas_length_to_feet(length_canvas_units):
-    return length_canvas_units * FEET_PER_CANVAS_UNIT
+def fig_to_jpeg_bytes(fig):
+    buffer = BytesIO()
+    fig.savefig(buffer, format="jpg", dpi=200, bbox_inches="tight", facecolor="white", transparent=False)
+    buffer.seek(0)
+    return buffer
 
-def draw_grid(ax):
+
+def fig_to_svg_bytes(fig):
+    buffer = BytesIO()
+    fig.savefig(buffer, format="svg", bbox_inches="tight")
+    buffer.seek(0)
+    return buffer
+
+
+def canvas_area_to_sqft(area_canvas_units, feet_per_canvas_unit):
+    return area_canvas_units * (feet_per_canvas_unit ** 2)
+
+
+def canvas_length_to_feet(length_canvas_units, feet_per_canvas_unit):
+    return length_canvas_units * feet_per_canvas_unit
+
+
+def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
     x = 0
-    while x <= CANVAS_WIDTH:
+    while x <= canvas_width:
         ax.axvline(x, linewidth=0.4, alpha=0.25)
-        x += GRID_SPACING_UNITS
+        x += grid_spacing_units
 
     y = 0
-    while y <= CANVAS_HEIGHT:
+    while y <= canvas_height:
         ax.axhline(y, linewidth=0.4, alpha=0.25)
-        y += GRID_SPACING_UNITS
+        y += grid_spacing_units
+
 
 def get_image_aspect_ratio(image_path):
     try:
         img = plt.imread(image_path)
         height_px, width_px = img.shape[:2]
-
         if height_px == 0:
             return 1
-
         return width_px / height_px
     except Exception:
         return 1
+
 
 def varied_height(plant):
     tolerance = HEIGHT_VARIATION_BY_HIERARCHY.get(plant["hierarchy"], 0.08)
     variation = random.uniform(1 - tolerance, 1 + tolerance)
     return plant["elevation_height"] * variation
+
+
+def prepare_uploaded_image(uploaded_file, canvas_width, canvas_height):
+    if uploaded_file is None:
+        return None, None
+
+    image = Image.open(uploaded_file).convert("RGB")
+    image = image.resize((canvas_width, canvas_height))
+    image_array = plt.imread(BytesIO(image_to_png_bytes(image).getvalue()))
+    return image, image_array
+
+
+def image_to_png_bytes(image):
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+def escape_svg_text(value):
+    return html.escape(str(value), quote=True)
+
+
+def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit):
+    """Create a clean vector SVG of the plan geometry.
+
+    This avoids relying on Matplotlib's SVG output and gives you true circle/vector objects.
+    """
+    path_points = " ".join([f"{x:.2f},{y:.2f}" for x, y in points])
+    svg = StringIO()
+    svg.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_width}" height="{canvas_height}" viewBox="0 0 {canvas_width} {canvas_height}">\n')
+    svg.write('<rect width="100%" height="100%" fill="white"/>\n')
+    svg.write(f'<polygon points="{path_points}" fill="none" stroke="black" stroke-width="2"/>\n')
+
+    for item in placed_instances:
+        plant = item["plant"]
+        dash = ' stroke-dasharray="6 4"' if plant.get("allows_underplanting", False) else ""
+        weight = "bold" if plant.get("allows_underplanting", False) else "normal"
+        svg.write(f'<circle cx="{item["x"]:.2f}" cy="{item["y"]:.2f}" r="{item["radius"]:.2f}" fill="none" stroke="black" stroke-width="1.2"{dash}/>\n')
+        svg.write(f'<text x="{item["x"]:.2f}" y="{item["y"]:.2f}" text-anchor="middle" dominant-baseline="middle" font-family="Arial" font-size="8" font-weight="{weight}">{escape_svg_text(plant["code"])}</text>\n')
+
+    svg.write(f'<text x="12" y="{canvas_height - 14}" font-family="Arial" font-size="10">Scale: 1 px = {feet_per_canvas_unit:.3f} ft</text>\n')
+    svg.write('</svg>')
+    return BytesIO(svg.getvalue().encode("utf-8"))
+
+
+def plan_to_dxf(points, placed_instances, feet_per_canvas_unit):
+    """Export a simple ASCII DXF in real feet.
+
+    AutoCAD, Rhino, Vectorworks, and many CAD tools can open DXF. This is the practical
+    Streamlit-friendly alternative to DWG.
+    """
+    dxf = StringIO()
+    dxf.write("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n2\n0\nENDSEC\n")
+    dxf.write("0\nSECTION\n2\nTABLES\n0\nENDSEC\n")
+    dxf.write("0\nSECTION\n2\nENTITIES\n")
+
+    closed_points = points + [points[0]]
+    for i in range(len(closed_points) - 1):
+        x1, y1 = closed_points[i]
+        x2, y2 = closed_points[i + 1]
+        dxf.write("0\nLINE\n8\nBOUNDARY\n")
+        dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
+        dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
+
+    for item in placed_instances:
+        plant = item["plant"]
+        dxf.write("0\nCIRCLE\n8\nPLANTS\n")
+        dxf.write(f"10\n{item['x'] * feet_per_canvas_unit:.4f}\n20\n{item['y'] * feet_per_canvas_unit:.4f}\n30\n0\n")
+        dxf.write(f"40\n{item['radius'] * feet_per_canvas_unit:.4f}\n")
+        dxf.write("0\nTEXT\n8\nPLANT_CODES\n")
+        dxf.write(f"10\n{item['x'] * feet_per_canvas_unit:.4f}\n20\n{item['y'] * feet_per_canvas_unit:.4f}\n30\n0\n")
+        dxf.write("40\n0.35\n")
+        dxf.write(f"1\n{plant['code']}\n")
+
+    dxf.write("0\nENDSEC\n0\nEOF\n")
+    return BytesIO(dxf.getvalue().encode("utf-8"))
 
 # -----------------------------
 # Sidebar
@@ -886,6 +1013,47 @@ def varied_height(plant):
 
 with st.sidebar:
     st.markdown("### by The Landscape Library")
+
+    st.header("Input Method")
+    input_method = st.radio(
+        "Choose how to define the planting bed",
+        ["Draw Boundary", "Upload JPEG Image"],
+        index=0
+    )
+
+    st.info("Max 50' bed")
+
+    if input_method == "Upload JPEG Image":
+        st.caption("Upload a JPEG image of the bed, then enter the real bed dimensions so the plan scales correctly.")
+        uploaded_bed_image = st.file_uploader(
+            "Upload bed image",
+            type=["jpg", "jpeg"]
+        )
+
+        bed_length_ft = st.number_input(
+            "Image length / horizontal dimension (ft)",
+            min_value=1.0,
+            max_value=float(MAX_BED_FEET),
+            value=30.0,
+            step=1.0
+        )
+
+        bed_width_ft = st.number_input(
+            "Image width / vertical dimension (ft)",
+            min_value=1.0,
+            max_value=float(MAX_BED_FEET),
+            value=15.0,
+            step=1.0
+        )
+    else:
+        uploaded_bed_image = None
+        bed_length_ft = DEFAULT_BED_LENGTH_FEET
+        bed_width_ft = DEFAULT_BED_WIDTH_FEET
+
+    canvas_width, canvas_height, feet_per_canvas_unit, grid_spacing_units = get_canvas_setup(
+        bed_length_ft,
+        bed_width_ft
+    )
 
     st.header("Site Parameters")
 
@@ -921,8 +1089,21 @@ with st.sidebar:
     max_plants_total = MAX_PLANTS_BY_DENSITY[density]
 
     st.header("Scale")
-    st.caption(f"Drawing area: {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft max")
+    st.caption(f"Bed limit: {MAX_BED_FEET} ft max length or width")
+    st.caption(f"Active bed: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
     st.caption(f"Grid: 1 square = {GRID_SPACING_FEET} ft")
+
+# -----------------------------
+# Active plant database + image prep
+# -----------------------------
+
+runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
+selected_plants = filter_plants(runtime_plants, state, climate, sun, water, style)
+background_image = None
+background_array = None
+
+if input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
+    background_image, background_array = prepare_uploaded_image(uploaded_bed_image, canvas_width, canvas_height)
 
 # -----------------------------
 # Main UI
@@ -931,24 +1112,33 @@ with st.sidebar:
 left, right = st.columns([2, 1])
 
 with left:
-    st.subheader("1. Draw Planting Boundary")
-    st.caption(f"Draw within the {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft area. Each grid square represents {GRID_SPACING_FEET} ft.")
+    if input_method == "Draw Boundary":
+        st.subheader("1. Draw Planting Boundary")
+        st.caption(f"Draw within the {MAX_BED_FEET} ft max bed area. Each grid square represents {GRID_SPACING_FEET} ft.")
 
-    canvas_result = st_canvas(
-        fill_color="rgba(0, 0, 0, 0)",
-        stroke_width=3,
-        stroke_color="#111111",
-        background_color="#f7f7f2",
-        height=CANVAS_HEIGHT,
-        width=CANVAS_WIDTH,
-        drawing_mode="polygon",
-        key="canvas",
-    )
+        canvas_result = st_canvas(
+            fill_color="rgba(0, 0, 0, 0)",
+            stroke_width=3,
+            stroke_color="#111111",
+            background_color="#f7f7f2",
+            height=canvas_height,
+            width=canvas_width,
+            drawing_mode="polygon",
+            key="draw_boundary_canvas",
+        )
+    else:
+        st.subheader("1. Upload Scaled Bed Image")
+        st.caption("The full image rectangle is treated as the planting bed boundary. Use a cropped bed image for the most accurate result.")
+
+        if uploaded_bed_image is None:
+            st.warning("Upload a JPEG image to generate from an image-based bed.")
+            canvas_result = None
+        else:
+            st.image(background_image, caption=f"Scaled image bed: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
+            canvas_result = None
 
 with right:
     st.subheader("2. Selected Plant Palette")
-
-    selected_plants = filter_plants(state, climate, sun, water, style)
 
     if len(selected_plants) == 0:
         st.warning("No plants match these parameters yet. Try adjusting sun exposure, water needs, or style.")
@@ -964,7 +1154,12 @@ with right:
 # Boundary metrics
 # -----------------------------
 
-points_preview = get_polygon_from_canvas(canvas_result.json_data)
+points_preview = None
+
+if input_method == "Draw Boundary":
+    points_preview = get_polygon_from_canvas(canvas_result.json_data)
+elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
+    points_preview = rectangle_points(canvas_width, canvas_height)
 
 if points_preview is not None:
     preview_poly = Polygon(points_preview)
@@ -973,20 +1168,20 @@ if points_preview is not None:
         preview_poly = preview_poly.buffer(0)
 
     if preview_poly.area > 0:
-        area_sqft = canvas_area_to_sqft(preview_poly.area)
-        perimeter_ft = canvas_length_to_feet(preview_poly.length)
+        area_sqft = canvas_area_to_sqft(preview_poly.area, feet_per_canvas_unit)
+        perimeter_ft = canvas_length_to_feet(preview_poly.length, feet_per_canvas_unit)
         minx_preview, miny_preview, maxx_preview, maxy_preview = preview_poly.bounds
 
-        width_ft = canvas_length_to_feet(maxx_preview - minx_preview)
-        depth_ft = canvas_length_to_feet(maxy_preview - miny_preview)
+        width_ft = canvas_length_to_feet(maxx_preview - minx_preview, feet_per_canvas_unit)
+        depth_ft = canvas_length_to_feet(maxy_preview - miny_preview, feet_per_canvas_unit)
 
         st.subheader("Boundary Metrics")
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Approx. Area", f"{area_sqft:,.0f} sq ft")
         c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
-        c3.metric("Approx. Width", f"{width_ft:,.0f} ft")
-        c4.metric("Approx. Depth", f"{depth_ft:,.0f} ft")
+        c3.metric("Approx. Length", f"{width_ft:,.0f} ft")
+        c4.metric("Approx. Width", f"{depth_ft:,.0f} ft")
 
 generate = st.button("Generate Planting Layout", type="primary")
 
@@ -997,10 +1192,19 @@ generate = st.button("Generate Planting Layout", type="primary")
 if generate:
     try:
         with st.spinner("Generating planting plan and elevation view..."):
-            points = get_polygon_from_canvas(canvas_result.json_data)
+            if input_method == "Draw Boundary":
+                points = get_polygon_from_canvas(canvas_result.json_data)
+            else:
+                points = rectangle_points(canvas_width, canvas_height) if uploaded_bed_image is not None else None
 
             if points is None:
-                st.warning("Draw a closed polygon boundary first.")
+                if input_method == "Draw Boundary":
+                    st.warning("Draw a closed polygon boundary first.")
+                else:
+                    st.warning("Upload a JPEG image first.")
+
+            elif bed_length_ft > MAX_BED_FEET or bed_width_ft > MAX_BED_FEET:
+                st.warning(f"The bed is too large. Keep the image dimensions at or below {MAX_BED_FEET} ft.")
 
             elif len(selected_plants) == 0:
                 st.warning("No plants are available for the selected site parameters.")
@@ -1012,7 +1216,7 @@ if generate:
                     poly = poly.buffer(0)
 
                 if poly.area <= 0:
-                    st.warning("The drawn boundary is invalid. Try drawing a clearer shape.")
+                    st.warning("The boundary is invalid. Try drawing a clearer shape or uploading a cleaner cropped image.")
 
                 else:
                     placed_instances, actual_coverage = pack_by_hierarchy(
@@ -1024,17 +1228,20 @@ if generate:
                     )
 
                     if len(placed_instances) == 0:
-                        st.warning("No plants could fit inside the drawn boundary. Try drawing a larger area, lowering the density, or adjusting the plant parameters.")
+                        st.warning("No plants could fit inside the boundary. Try a larger area, lower density, or different plant parameters.")
 
                     else:
                         st.subheader("Plan View")
 
                         fig, ax = plt.subplots(figsize=(10, 10))
 
-                        xs, ys = zip(*(points + [points[0]]))
-                        ax.plot(xs, ys, linewidth=2)
+                        if background_array is not None:
+                            ax.imshow(background_array, extent=(0, canvas_width, canvas_height, 0), alpha=0.35, zorder=0)
 
-                        draw_grid(ax)
+                        xs, ys = zip(*(points + [points[0]]))
+                        ax.plot(xs, ys, linewidth=2, zorder=3)
+
+                        draw_grid(ax, canvas_width, canvas_height, grid_spacing_units)
 
                         for item in placed_instances:
                             plant = item["plant"]
@@ -1046,7 +1253,8 @@ if generate:
                                 (item["x"], item["y"]),
                                 item["radius"],
                                 fill=False,
-                                linewidth=1.2
+                                linewidth=1.2,
+                                zorder=4
                             )
                             ax.add_patch(circle)
 
@@ -1056,7 +1264,8 @@ if generate:
                                 plant["code"],
                                 ha="center",
                                 va="center",
-                                fontsize=8
+                                fontsize=8,
+                                zorder=5
                             )
 
                         for item in placed_instances:
@@ -1071,7 +1280,8 @@ if generate:
                                 fill=False,
                                 linewidth=1.5,
                                 linestyle="--",
-                                alpha=0.75
+                                alpha=0.75,
+                                zorder=4
                             )
                             ax.add_patch(circle)
 
@@ -1082,28 +1292,47 @@ if generate:
                                 ha="center",
                                 va="center",
                                 fontsize=8,
-                                fontweight="bold"
+                                fontweight="bold",
+                                zorder=5
                             )
 
-                        ax.set_xlim(0, CANVAS_WIDTH)
-                        ax.set_ylim(CANVAS_HEIGHT, 0)
+                        ax.set_xlim(0, canvas_width)
+                        ax.set_ylim(canvas_height, 0)
                         ax.set_aspect("equal")
                         ax.axis("off")
 
                         st.pyplot(fig)
 
                         plan_png = fig_to_png_bytes(fig)
+                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit)
+                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit)
 
-                        st.download_button(
-                            label="Download Plan PNG",
-                            data=plan_png,
-                            file_name="yodra-planting-plan.png",
-                            mime="image/png"
-                        )
+                        d1, d2, d3 = st.columns(3)
+                        with d1:
+                            st.download_button(
+                                label="Download Plan PNG",
+                                data=plan_png,
+                                file_name="yodra-planting-plan.png",
+                                mime="image/png"
+                            )
+                        with d2:
+                            st.download_button(
+                                label="Download Plan SVG",
+                                data=plan_svg,
+                                file_name="yodra-planting-plan.svg",
+                                mime="image/svg+xml"
+                            )
+                        with d3:
+                            st.download_button(
+                                label="Download Plan DXF",
+                                data=plan_dxf,
+                                file_name="yodra-planting-plan.dxf",
+                                mime="application/dxf"
+                            )
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
-                        st.caption(f"Scale: full canvas = {MAX_SITE_FEET} ft x {MAX_SITE_FEET} ft")
+                        st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
 
                         st.subheader("Elevation View")
@@ -1145,20 +1374,30 @@ if generate:
                                 )
 
                         elev_ax.axhline(0, linewidth=1)
-                        elev_ax.set_xlim(0, CANVAS_WIDTH)
+                        elev_ax.set_xlim(0, canvas_width)
                         elev_ax.set_ylim(0, 140)
                         elev_ax.axis("off")
 
                         st.pyplot(elev_fig)
 
                         elevation_png = fig_to_png_bytes(elev_fig)
+                        elevation_jpeg = fig_to_jpeg_bytes(elev_fig)
 
-                        st.download_button(
-                            label="Download Elevation PNG",
-                            data=elevation_png,
-                            file_name="yodra-planting-elevation.png",
-                            mime="image/png"
-                        )
+                        e1, e2 = st.columns(2)
+                        with e1:
+                            st.download_button(
+                                label="Download Elevation PNG",
+                                data=elevation_png,
+                                file_name="yodra-planting-elevation.png",
+                                mime="image/png"
+                            )
+                        with e2:
+                            st.download_button(
+                                label="Download Elevation JPEG",
+                                data=elevation_jpeg,
+                                file_name="yodra-planting-elevation.jpg",
+                                mime="image/jpeg"
+                            )
 
                         st.subheader("Plant Count")
 
@@ -1173,7 +1412,7 @@ if generate:
 
                         schedule = []
                         for plant_name, count in counts.items():
-                            plant = next(p for p in PLANTS if p["name"] == plant_name)
+                            plant = next(p for p in runtime_plants if p["name"] == plant_name)
 
                             schedule.append({
                                 "Code": plant["code"],
@@ -1201,5 +1440,3 @@ if generate:
     except Exception as e:
         st.error("The app crashed while generating the layout.")
         st.exception(e)
-
-
