@@ -3,3 +3,5 @@ matplotlib
 shapely
 streamlit-drawable-canvas
 pillow
+ezdxf
+svgwrite
