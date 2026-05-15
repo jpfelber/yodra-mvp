@@ -55,29 +55,40 @@ from streamlit_drawable_canvas import st_canvas
 # removed that helper, which causes an AttributeError on image upload.
 # This patch restores the expected helper by converting the PIL background image
 # into a browser-safe base64 data URL.
+def _yodra_image_to_url(image, width=None, clamp=False, channels="RGB", output_format="PNG", image_id=None):
+    """Compatibility helper for streamlit-drawable-canvas background images.
+
+    Newer Streamlit versions removed st.image.image_to_url, but
+    streamlit-drawable-canvas still calls it. This replacement returns a
+    base64 PNG data URL that the canvas component can use as its background.
+    """
+    if image is None:
+        return None
+
+    if isinstance(image, str):
+        return image
+
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image)
+
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGB")
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
 try:
+    # This is the exact object streamlit-drawable-canvas references: st.image.image_to_url
+    st.image.image_to_url = _yodra_image_to_url
+except Exception:
+    pass
+
+try:
+    # Also patch Streamlit's image module for environments that reference it directly.
     import streamlit.elements.image as st_image
-
-    if not hasattr(st_image, "image_to_url"):
-        def _yodra_image_to_url(image, width=None, clamp=False, channels="RGB", output_format="PNG", image_id=None):
-            if image is None:
-                return None
-
-            if isinstance(image, str):
-                return image
-
-            if not isinstance(image, Image.Image):
-                image = Image.fromarray(image)
-
-            if image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGB")
-
-            buffer = BytesIO()
-            image.save(buffer, format="PNG")
-            encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-            return f"data:image/png;base64,{encoded}"
-
-        st_image.image_to_url = _yodra_image_to_url
+    st_image.image_to_url = _yodra_image_to_url
 except Exception:
     pass
 
