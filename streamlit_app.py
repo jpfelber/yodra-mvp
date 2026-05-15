@@ -52,7 +52,7 @@ st.set_page_config(
 )
 
 st.title("AI-Powered Planting Design Engine")
-st.caption("Draw a planting boundary or upload a scaled bed image, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
+st.caption("Draw a planting boundary or upload a scaled bed image, trace the bedline, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
 
 # -----------------------------
 # Canvas + Scale settings
@@ -1024,7 +1024,7 @@ with st.sidebar:
     st.info("Max 50' bed")
 
     if input_method == "Upload JPEG Image":
-        st.caption("Upload a JPEG image of the bed, then enter the real bed dimensions so the plan scales correctly.")
+        st.caption("Upload a JPEG image as a scaled background, then trace the actual bedline on top of it.")
         uploaded_bed_image = st.file_uploader(
             "Upload bed image",
             type=["jpg", "jpeg"]
@@ -1127,15 +1127,23 @@ with left:
             key="draw_boundary_canvas",
         )
     else:
-        st.subheader("1. Upload Scaled Bed Image")
-        st.caption("The full image rectangle is treated as the planting bed boundary. Use a cropped bed image for the most accurate result.")
+        st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
+        st.caption("Upload the JPEG as a scaled background, then trace the actual planting bed boundary inside the image. Plants will only generate inside the traced polygon, not across the full image rectangle.")
 
         if uploaded_bed_image is None:
-            st.warning("Upload a JPEG image to generate from an image-based bed.")
+            st.warning("Upload a JPEG image first, then trace the bedline on top of it.")
             canvas_result = None
         else:
-            st.image(background_image, caption=f"Scaled image bed: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
-            canvas_result = None
+            canvas_result = st_canvas(
+                fill_color="rgba(0, 0, 0, 0)",
+                stroke_width=3,
+                stroke_color="#ffffff",
+                background_image=background_image,
+                height=canvas_height,
+                width=canvas_width,
+                drawing_mode="polygon",
+                key=f"trace_image_canvas_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}",
+            )
 
 with right:
     st.subheader("2. Selected Plant Palette")
@@ -1156,10 +1164,10 @@ with right:
 
 points_preview = None
 
-if input_method == "Draw Boundary":
+if input_method == "Draw Boundary" and canvas_result is not None:
     points_preview = get_polygon_from_canvas(canvas_result.json_data)
-elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-    points_preview = rectangle_points(canvas_width, canvas_height)
+elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None and canvas_result is not None:
+    points_preview = get_polygon_from_canvas(canvas_result.json_data)
 
 if points_preview is not None:
     preview_poly = Polygon(points_preview)
@@ -1192,16 +1200,18 @@ generate = st.button("Generate Planting Layout", type="primary")
 if generate:
     try:
         with st.spinner("Generating planting plan and elevation view..."):
-            if input_method == "Draw Boundary":
+            if input_method == "Draw Boundary" and canvas_result is not None:
+                points = get_polygon_from_canvas(canvas_result.json_data)
+            elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None and canvas_result is not None:
                 points = get_polygon_from_canvas(canvas_result.json_data)
             else:
-                points = rectangle_points(canvas_width, canvas_height) if uploaded_bed_image is not None else None
+                points = None
 
             if points is None:
                 if input_method == "Draw Boundary":
                     st.warning("Draw a closed polygon boundary first.")
                 else:
-                    st.warning("Upload a JPEG image first.")
+                    st.warning("Upload a JPEG image and trace a closed polygon boundary first.")
 
             elif bed_length_ft > MAX_BED_FEET or bed_width_ft > MAX_BED_FEET:
                 st.warning(f"The bed is too large. Keep the image dimensions at or below {MAX_BED_FEET} ft.")
@@ -1216,7 +1226,7 @@ if generate:
                     poly = poly.buffer(0)
 
                 if poly.area <= 0:
-                    st.warning("The boundary is invalid. Try drawing a clearer shape or uploading a cleaner cropped image.")
+                    st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
                     placed_instances, actual_coverage = pack_by_hierarchy(
