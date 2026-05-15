@@ -1323,8 +1323,14 @@ if points_preview is not None:
 generate = st.button("Generate Planting Layout", type="primary")
 
 # -----------------------------
-# Generate
+# Generate + Persist Output State
 # -----------------------------
+# Streamlit reruns the script after every widget interaction, including download clicks.
+# These session_state keys keep the current generated scheme available so users can
+# download PNG, SVG, DXF, and elevation files without losing the current layout.
+
+if "generated_scheme" not in st.session_state:
+    st.session_state.generated_scheme = None
 
 if generate:
     try:
@@ -1373,12 +1379,18 @@ if generate:
                         st.warning("No plants could fit inside the boundary. Try a larger area, lower density, or different plant parameters.")
 
                     else:
-                        st.subheader("Plan View")
-
+                        # -----------------------------
+                        # Create Plan Figure
+                        # -----------------------------
                         fig, ax = plt.subplots(figsize=(10, 10))
 
                         if background_array is not None:
-                            ax.imshow(background_array, extent=(0, canvas_width, canvas_height, 0), alpha=0.35, zorder=0)
+                            ax.imshow(
+                                background_array,
+                                extent=(0, canvas_width, canvas_height, 0),
+                                alpha=0.35,
+                                zorder=0
+                            )
 
                         xs, ys = zip(*(points + [points[0]]))
                         ax.plot(xs, ys, linewidth=2, zorder=3)
@@ -1443,43 +1455,14 @@ if generate:
                         ax.set_aspect("equal")
                         ax.axis("off")
 
-                        st.pyplot(fig)
-
                         plan_png = fig_to_png_bytes(fig)
                         plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit)
                         plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit)
+                        plt.close(fig)
 
-                        d1, d2, d3 = st.columns(3)
-                        with d1:
-                            st.download_button(
-                                label="Download Plan PNG",
-                                data=plan_png,
-                                file_name="yodra-planting-plan.png",
-                                mime="image/png"
-                            )
-                        with d2:
-                            st.download_button(
-                                label="Download Plan SVG",
-                                data=plan_svg,
-                                file_name="yodra-planting-plan.svg",
-                                mime="image/svg+xml"
-                            )
-                        with d3:
-                            st.download_button(
-                                label="Download Plan DXF",
-                                data=plan_dxf,
-                                file_name="yodra-planting-plan.dxf",
-                                mime="application/dxf"
-                            )
-
-                        st.caption(f"Target coverage: {round(target_coverage * 100)}%")
-                        st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
-                        st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
-                        st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
-
-                        st.subheader("Elevation View")
-                        st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
-
+                        # -----------------------------
+                        # Create Elevation Figure
+                        # -----------------------------
                         elev_fig, elev_ax = plt.subplots(figsize=(12, 4))
 
                         placed_sorted = sorted(placed_instances, key=lambda item: item["x"])
@@ -1520,37 +1503,17 @@ if generate:
                         elev_ax.set_ylim(0, 140)
                         elev_ax.axis("off")
 
-                        st.pyplot(elev_fig)
-
                         elevation_png = fig_to_png_bytes(elev_fig)
                         elevation_jpeg = fig_to_jpeg_bytes(elev_fig)
+                        plt.close(elev_fig)
 
-                        e1, e2 = st.columns(2)
-                        with e1:
-                            st.download_button(
-                                label="Download Elevation PNG",
-                                data=elevation_png,
-                                file_name="yodra-planting-elevation.png",
-                                mime="image/png"
-                            )
-                        with e2:
-                            st.download_button(
-                                label="Download Elevation JPEG",
-                                data=elevation_jpeg,
-                                file_name="yodra-planting-elevation.jpg",
-                                mime="image/jpeg"
-                            )
-
-                        st.subheader("Plant Count")
-
+                        # -----------------------------
+                        # Plant Count + Schedule
+                        # -----------------------------
                         counts = {}
                         for item in placed_instances:
                             plant = item["plant"]
                             counts[plant["name"]] = counts.get(plant["name"], 0) + 1
-
-                        st.write(counts)
-
-                        st.subheader("Plant Schedule")
 
                         schedule = []
                         for plant_name, count in counts.items():
@@ -1577,8 +1540,105 @@ if generate:
                                 "Allows Underplanting": plant.get("allows_underplanting", False)
                             })
 
-                        st.dataframe(schedule, width="stretch")
+                        # -----------------------------
+                        # Persist Current Scheme
+                        # -----------------------------
+                        st.session_state.generated_scheme = {
+                            "plan_png": plan_png.getvalue() if hasattr(plan_png, "getvalue") else plan_png,
+                            "plan_svg": plan_svg,
+                            "plan_dxf": plan_dxf,
+                            "elevation_png": elevation_png.getvalue() if hasattr(elevation_png, "getvalue") else elevation_png,
+                            "elevation_jpeg": elevation_jpeg.getvalue() if hasattr(elevation_jpeg, "getvalue") else elevation_jpeg,
+                            "counts": counts,
+                            "schedule": schedule,
+                            "target_coverage": target_coverage,
+                            "actual_coverage": actual_coverage,
+                            "bed_length_ft": bed_length_ft,
+                            "bed_width_ft": bed_width_ft,
+                            "max_plants_total": max_plants_total,
+                            "input_method": input_method,
+                            "plant_count_total": len(placed_instances),
+                        }
+
+                        st.success("Planting layout generated. Downloads are now locked to this current scheme.")
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
         st.exception(e)
+
+# -----------------------------
+# Display Persisted Current Scheme
+# -----------------------------
+
+scheme = st.session_state.get("generated_scheme")
+
+if scheme is not None:
+    st.subheader("Current Generated Scheme")
+    st.caption("This scheme is stored in session state, so you can download multiple file formats without regenerating or losing the current layout.")
+
+    st.subheader("Plan View")
+    st.image(scheme["plan_png"], use_container_width=True)
+
+    d1, d2, d3 = st.columns(3)
+    with d1:
+        st.download_button(
+            label="Download Plan PNG",
+            data=scheme["plan_png"],
+            file_name="yodra-planting-plan.png",
+            mime="image/png",
+            key="download_plan_png"
+        )
+    with d2:
+        st.download_button(
+            label="Download Plan SVG",
+            data=scheme["plan_svg"],
+            file_name="yodra-planting-plan.svg",
+            mime="image/svg+xml",
+            key="download_plan_svg"
+        )
+    with d3:
+        st.download_button(
+            label="Download Plan DXF",
+            data=scheme["plan_dxf"],
+            file_name="yodra-planting-plan.dxf",
+            mime="application/dxf",
+            key="download_plan_dxf"
+        )
+
+    st.caption(f"Target coverage: {round(scheme['target_coverage'] * 100)}%")
+    st.caption(f"Actual generated coverage: {round(scheme['actual_coverage'] * 100)}%")
+    st.caption(f"Active bed scale: {scheme['bed_length_ft']:.0f} ft x {scheme['bed_width_ft']:.0f} ft")
+    st.caption(f"Maximum plant instances capped at {scheme['max_plants_total']} for app performance.")
+    st.caption(f"Generated plant instances: {scheme['plant_count_total']}")
+
+    st.subheader("Elevation View")
+    st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
+    st.image(scheme["elevation_png"], use_container_width=True)
+
+    e1, e2 = st.columns(2)
+    with e1:
+        st.download_button(
+            label="Download Elevation PNG",
+            data=scheme["elevation_png"],
+            file_name="yodra-planting-elevation.png",
+            mime="image/png",
+            key="download_elevation_png"
+        )
+    with e2:
+        st.download_button(
+            label="Download Elevation JPEG",
+            data=scheme["elevation_jpeg"],
+            file_name="yodra-planting-elevation.jpg",
+            mime="image/jpeg",
+            key="download_elevation_jpeg"
+        )
+
+    st.subheader("Plant Count")
+    st.write(scheme["counts"])
+
+    st.subheader("Plant Schedule")
+    st.dataframe(scheme["schedule"], width="stretch")
+
+    if st.button("Clear Current Generated Scheme"):
+        st.session_state.generated_scheme = None
+        st.rerun()
