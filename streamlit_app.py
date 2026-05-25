@@ -1,10 +1,17 @@
+
 import streamlit as st
+from datetime import datetime, timezone
+try:
+    from supabase import create_client
+except Exception:
+    create_client = None
+import pandas as pd
 
 # -------------------------
 # PASSWORD PROTECTION
 # -------------------------
 
-PASSWORD = st.secrets.get("APP_PASSWORD", st.secrets.get("YODRA_PASSWORD", ""))
+PASSWORD = st.secrets["APP_PASSWORD"]
 
 def check_password():
     if "authenticated" not in st.session_state:
@@ -31,117 +38,27 @@ def check_password():
 if not check_password():
     st.stop()
 
+
 # -------------------------
-# YOUR APP BELOW
+# SUPABASE USER TRACKING
 # -------------------------
-
-import random
-import math
-import os
-import html
-from pathlib import Path
-import base64
-import csv
-from datetime import datetime, timezone
-from io import BytesIO, StringIO
-
-import matplotlib.pyplot as plt
-from PIL import Image, ImageDraw
-from shapely.geometry import Polygon, Point
-from streamlit_drawable_canvas import st_canvas
-from supabase import create_client, Client
-try:
-    from streamlit_image_coordinates import streamlit_image_coordinates
-except Exception:
-    streamlit_image_coordinates = None
-
-# -----------------------------
-# Supabase beta tracking
-# -----------------------------
 
 FREE_GENERATION_LIMIT = 999
 
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
-STRIPE_CHECKOUT_URL = st.secrets.get("STRIPE_CHECKOUT_URL", "")
+def get_supabase_client():
+    if create_client is None:
+        return None
+    url = st.secrets.get("SUPABASE_URL", "")
+    key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not url or not key:
+        return None
+    return create_client(url, key)
 
-supabase: Client | None = None
-if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-
-def require_supabase():
-    if supabase is None:
-        st.error("Supabase is not connected. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to Streamlit Secrets.")
-        st.stop()
-
-
-def get_or_create_user(email):
-    require_supabase()
-    email = email.strip().lower()
-
-    result = supabase.table("users").select("*").eq("email", email).execute()
-
-    if result.data:
-        user = result.data[0]
-        supabase.table("users").update({
-            "last_seen": datetime.now(timezone.utc).isoformat()
-        }).eq("email", email).execute()
-        return user
-
-    new_user = {
-        "email": email,
-        "first_seen": datetime.now(timezone.utc).isoformat(),
-        "last_seen": datetime.now(timezone.utc).isoformat(),
-        "total_generations": 0,
-        "total_exports": 0,
-        "paid_status": False
-    }
-
-    created = supabase.table("users").insert(new_user).execute()
-    return created.data[0]
-
-
-def refresh_user(email):
-    require_supabase()
-    result = supabase.table("users").select("*").eq("email", email).execute()
-    if result.data:
-        return result.data[0]
-    return get_or_create_user(email)
-
-
-def update_generation_count(email):
-    require_supabase()
-    user = refresh_user(email)
-    current_count = user.get("total_generations", 0) or 0
-    new_count = current_count + 1
-
-    supabase.table("users").update({
-        "total_generations": new_count,
-        "last_seen": datetime.now(timezone.utc).isoformat()
-    }).eq("email", email).execute()
-
-    return new_count
-
-
-def update_export_count(email):
-    require_supabase()
-    user = refresh_user(email)
-    current_count = user.get("total_exports", 0) or 0
-    new_count = current_count + 1
-
-    supabase.table("users").update({
-        "total_exports": new_count,
-        "last_seen": datetime.now(timezone.utc).isoformat()
-    }).eq("email", email).execute()
-
-    return new_count
-
+supabase = get_supabase_client()
 
 def log_event(email, event_type, **kwargs):
-    if supabase is None:
+    if supabase is None or not email:
         return
-
     event = {
         "email": email,
         "event_type": event_type,
@@ -155,45 +72,101 @@ def log_event(email, event_type, **kwargs):
         "density": kwargs.get("density"),
         "plants_generated_count": kwargs.get("plants_generated_count"),
         "export_type": kwargs.get("export_type"),
-        "notes": kwargs.get("notes")
+        "notes": kwargs.get("notes"),
     }
-
     try:
         supabase.table("events").insert(event).execute()
     except Exception:
-        # Do not crash the design tool if event logging fails.
         pass
 
+def get_or_create_user(email):
+    email = email.strip().lower()
+    if supabase is None:
+        return {"email": email, "paid_status": False, "total_generations": 0, "total_exports": 0}
+
+    now = datetime.now(timezone.utc).isoformat()
+    result = supabase.table("users").select("*").eq("email", email).execute()
+    if result.data:
+        user = result.data[0]
+        supabase.table("users").update({"last_seen": now}).eq("email", email).execute()
+        return user
+
+    new_user = {
+        "email": email,
+        "first_seen": now,
+        "last_seen": now,
+        "paid_status": False,
+        "total_generations": 0,
+        "total_exports": 0,
+    }
+    created = supabase.table("users").insert(new_user).execute()
+    return created.data[0] if created.data else new_user
+
+def increment_generation_count(email):
+    if supabase is None:
+        return 0
+    result = supabase.table("users").select("total_generations").eq("email", email).execute()
+    current = 0
+    if result.data:
+        current = result.data[0].get("total_generations") or 0
+    new_count = current + 1
+    supabase.table("users").update({
+        "total_generations": new_count,
+        "last_seen": datetime.now(timezone.utc).isoformat()
+    }).eq("email", email).execute()
+    return new_count
+
+def increment_export_count(email):
+    if supabase is None:
+        return
+    result = supabase.table("users").select("total_exports").eq("email", email).execute()
+    current = 0
+    if result.data:
+        current = result.data[0].get("total_exports") or 0
+    supabase.table("users").update({"total_exports": current + 1}).eq("email", email).execute()
 
 def beta_email_gate():
-    require_supabase()
-
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
-
     if st.session_state.user_email:
-        st.session_state.user_data = refresh_user(st.session_state.user_email)
-        return
+        return True
 
     st.title("YODRA")
     st.markdown("### Start your private beta session")
-    st.caption("Enter your email to continue. This helps track beta usage, generations, exports, and requested plants.")
-
-    email_input = st.text_input("Email address")
-
+    email = st.text_input("Enter your email to continue")
     if st.button("Continue"):
-        if "@" not in email_input or "." not in email_input:
+        if "@" not in email or "." not in email:
             st.error("Please enter a valid email address.")
             st.stop()
-
-        user = get_or_create_user(email_input)
+        user = get_or_create_user(email)
         st.session_state.user_email = user["email"]
         st.session_state.user_data = user
         log_event(user["email"], "app_opened")
         st.rerun()
-
     st.stop()
 
+beta_email_gate()
+
+
+# -------------------------
+# YOUR APP BELOW
+# -------------------------
+
+import random
+import math
+import os
+import html
+import base64
+from io import BytesIO, StringIO
+
+import matplotlib.pyplot as plt
+from PIL import Image, ImageDraw
+from shapely.geometry import Polygon, Point
+from streamlit_drawable_canvas import st_canvas
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+except Exception:
+    streamlit_image_coordinates = None
 
 # -----------------------------
 # Compatibility patch
@@ -244,8 +217,6 @@ st.set_page_config(
     page_title="AI-Powered Planting Design Engine",
     layout="wide"
 )
-
-beta_email_gate()
 
 st.title("AI-Powered Planting Design Engine")
 st.caption("Draw a planting boundary or upload a scaled bed image, trace the bedline, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
@@ -974,14 +945,13 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
     return placed_layer, placed_area
 
 
-def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, hierarchy_coverage_split=None):
+def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, hierarchy_split=None):
     boundary_area = poly.area
 
     if boundary_area <= 0:
         return [], 0
 
     total_target_area = boundary_area * target_coverage
-    hierarchy_coverage_split = hierarchy_coverage_split or HIERARCHY_COVERAGE_SPLIT
     all_placed = []
     total_placed_area = 0
 
@@ -991,7 +961,8 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
         if not layer_plants:
             continue
 
-        layer_target_area = total_target_area * hierarchy_coverage_split.get(hierarchy, 0)
+        split = hierarchy_split or HIERARCHY_COVERAGE_SPLIT
+        layer_target_area = total_target_area * split.get(hierarchy, HIERARCHY_COVERAGE_SPLIT[hierarchy])
 
         placed_layer, placed_area = pack_layer(
             poly=poly,
@@ -1111,145 +1082,10 @@ def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
         y += grid_spacing_units
 
 
-def slugify_for_file(value):
-    """Normalize plant names and filenames for flexible image matching."""
-    value = str(value or "").lower()
-    keep = []
-    for char in value:
-        if char.isalnum():
-            keep.append(char)
-        else:
-            keep.append("-")
-    slug = "".join(keep)
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug.strip("-")
-
-
-def all_repo_image_files():
-    """Return all likely plant image files available to the deployed app."""
+def get_image_aspect_ratio(image_path):
     try:
-        app_dir = Path(__file__).resolve().parent
-    except Exception:
-        app_dir = Path.cwd()
-
-    roots = []
-    for root in [Path.cwd(), app_dir, app_dir / "plant_images", Path.cwd() / "plant_images", app_dir / "images", Path.cwd() / "images", app_dir / "assets", Path.cwd() / "assets"]:
-        if root.exists() and root.is_dir() and root not in roots:
-            roots.append(root)
-
-    files = []
-    extensions = ["*.png", "*.webp", "*.jpg", "*.jpeg", "*.PNG", "*.WEBP", "*.JPG", "*.JPEG"]
-    for root in roots:
-        for ext in extensions:
-            files.extend(root.rglob(ext))
-
-    # de-duplicate while preserving order
-    seen = set()
-    unique_files = []
-    for file in files:
-        key = str(file.resolve())
-        if key not in seen and file.is_file():
-            seen.add(key)
-            unique_files.append(file)
-    return unique_files
-
-
-def resolve_plant_image_path(image_path, plant=None):
-    """Find plant cutout images even when GitHub filenames use PNG instead of WebP.
-
-    This checks:
-    1) the exact path in the plant database
-    2) the same filename with .png/.webp/.jpg/.jpeg
-    3) a flexible lookup by botanical name, common name, code, and filename stem
-    """
-    possible_extensions = [".png", ".webp", ".jpg", ".jpeg", ".PNG", ".WEBP", ".JPG", ".JPEG"]
-
-    try:
-        app_dir = Path(__file__).resolve().parent
-    except Exception:
-        app_dir = Path.cwd()
-
-    candidates = []
-
-    if image_path:
-        raw_path = Path(str(image_path))
-        base_paths = []
-        if raw_path.is_absolute():
-            base_paths.append(raw_path)
-        else:
-            base_paths.extend([
-                Path.cwd() / raw_path,
-                app_dir / raw_path,
-                app_dir / raw_path.name,
-                app_dir / "plant_images" / raw_path.name,
-                Path.cwd() / "plant_images" / raw_path.name,
-                app_dir / "images" / raw_path.name,
-                Path.cwd() / "images" / raw_path.name,
-                app_dir / "assets" / raw_path.name,
-                Path.cwd() / "assets" / raw_path.name,
-            ])
-
-        for base in base_paths:
-            candidates.append(base)
-            for ext in possible_extensions:
-                candidates.append(base.with_suffix(ext))
-
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return str(candidate)
-
-    # Flexible scan for mismatched folder/file extensions.
-    search_terms = []
-    if image_path:
-        raw = Path(str(image_path))
-        search_terms.append(slugify_for_file(raw.stem))
-        search_terms.append(slugify_for_file(raw.name))
-
-    if plant:
-        search_terms.extend([
-            slugify_for_file(plant.get("name", "")),
-            slugify_for_file(plant.get("common_name", "")),
-            slugify_for_file(plant.get("code", "")),
-        ])
-
-    search_terms = [term for term in dict.fromkeys(search_terms) if term]
-
-    for file in all_repo_image_files():
-        file_stem = slugify_for_file(file.stem)
-        file_name = slugify_for_file(file.name)
-        for term in search_terms:
-            if term and (term == file_stem or term in file_stem or file_stem in term or term in file_name):
-                return str(file)
-
-    return None
-
-
-def load_plant_image(image_path, plant=None):
-    """Load a PNG/WebP/JPEG plant cutout with alpha transparency support."""
-    resolved_path = resolve_plant_image_path(image_path, plant=plant)
-    if resolved_path is None:
-        return None, None
-
-    try:
-        img = Image.open(resolved_path).convert("RGBA")
-        return img, resolved_path
-    except Exception:
-        try:
-            img = plt.imread(resolved_path)
-            return img, resolved_path
-        except Exception:
-            return None, resolved_path
-
-def get_image_aspect_ratio(image_path, plant=None):
-    img, _ = load_plant_image(image_path, plant=plant)
-    try:
-        if img is None:
-            return 1
-        if isinstance(img, Image.Image):
-            width_px, height_px = img.size
-        else:
-            height_px, width_px = img.shape[:2]
+        img = plt.imread(image_path)
+        height_px, width_px = img.shape[:2]
         if height_px == 0:
             return 1
         return width_px / height_px
@@ -1306,17 +1142,6 @@ def image_to_png_bytes(image):
     image.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
-
-
-def schedule_to_csv_bytes(schedule):
-    buffer = StringIO()
-    if not schedule:
-        return BytesIO(b"")
-
-    writer = csv.DictWriter(buffer, fieldnames=list(schedule[0].keys()))
-    writer.writeheader()
-    writer.writerows(schedule)
-    return BytesIO(buffer.getvalue().encode("utf-8"))
 
 
 def escape_svg_text(value):
@@ -1430,10 +1255,7 @@ with st.sidebar:
 
     state = st.selectbox("State", ["California"])
     climate = st.selectbox("Climate", ["Coastal", "Inland", "Dry", "Woodland"])
-    zone_microclimate = st.text_input(
-        "Zone / Microclimate",
-        placeholder="Example: Sunset Zone 16, USDA 9b, coastal fog belt"
-    )
+    zone_microclimate = st.text_input("Zone / Microclimate", placeholder="Example: USDA 9b, Sunset 16, coastal fog belt")
 
     sun = st.selectbox(
         "Sun Exposure",
@@ -1459,29 +1281,6 @@ with st.sidebar:
         ["Low", "Moderate", "Dense", "Very Dense"]
     )
 
-    st.header("Planting Mix")
-    st.caption("Adjust the planting hierarchy. Values are normalized automatically to total 100%.")
-
-    anchor_pct = st.slider("Anchor / Canopy %", 0, 60, 24, 1)
-    mid_pct = st.slider("Mid Layer / Structure %", 0, 70, 30, 1)
-    accent_pct = st.slider("Accent Layer %", 0, 60, 20, 1)
-    groundcover_pct = st.slider("Groundcover / Matrix %", 0, 80, 26, 1)
-
-    pct_total = max(anchor_pct + mid_pct + accent_pct + groundcover_pct, 1)
-    hierarchy_coverage_split = {
-        "Anchor": anchor_pct / pct_total,
-        "Mid Layer": mid_pct / pct_total,
-        "Accent Layer": accent_pct / pct_total,
-        "Groundcover": groundcover_pct / pct_total
-    }
-
-    st.caption(
-        f"Normalized mix: Anchor {hierarchy_coverage_split['Anchor']:.0%}, "
-        f"Mid {hierarchy_coverage_split['Mid Layer']:.0%}, "
-        f"Accent {hierarchy_coverage_split['Accent Layer']:.0%}, "
-        f"Groundcover {hierarchy_coverage_split['Groundcover']:.0%}"
-    )
-
     target_coverage = DENSITY_OPTIONS[density]
     spacing_factor = SPACING_BY_DENSITY[density]
     max_plants_total = MAX_PLANTS_BY_DENSITY[density]
@@ -1491,66 +1290,57 @@ with st.sidebar:
     st.caption(f"Active bed: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
     st.caption(f"Grid: 1 square = {GRID_SPACING_FEET} ft")
 
-    st.header("Request a Plant")
-    with st.form("request_plant_form"):
-        requested_plant = st.text_input("Plant you want added")
-        request_region = st.text_input("Region / city / nursery source (optional)")
-        request_note = st.text_area("Notes (optional)", height=80)
-        submitted_request = st.form_submit_button("Submit Plant Request")
-
-        if submitted_request:
-            if requested_plant.strip():
-                notes = (
-                    f"Requested plant: {requested_plant.strip()} | "
-                    f"Region/source: {request_region.strip()} | "
-                    f"Note: {request_note.strip()}"
-                )
-                log_event(
-                    st.session_state.user_email,
-                    "plant_requested",
-                    state=state,
-                    zone=zone_microclimate,
-                    climate=climate,
-                    sun_exposure=sun,
-                    water_needs=water,
-                    design_style=style,
-                    density=density,
-                    notes=notes
-                )
-                st.success("Plant request submitted.")
-            else:
-                st.warning("Enter a plant name before submitting.")
-
 # -----------------------------
 # Active plant database + image prep
 # -----------------------------
 
 runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
-base_selected_plants = filter_plants(runtime_plants, state, climate, sun, water, style)
-
-base_plant_names = [p["name"] for p in base_selected_plants]
-all_plant_names = [p["name"] for p in runtime_plants]
-
+selected_plants = filter_plants(runtime_plants, state, climate, sun, water, style)
+# Manual include / exclude controls
+all_matching_names = [p["name"] for p in selected_plants]
 with st.sidebar:
     st.header("Plant Controls")
-    excluded_plant_names = st.multiselect(
-        "Exclude plants from this palette",
-        options=base_plant_names,
-        help="Remove plants you do not want YODRA to use for this generation."
-    )
+    include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
+    exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
-    included_plant_names = st.multiselect(
-        "Force include specific plants",
-        options=all_plant_names,
-        help="Add specific plants into the active palette even if they are filtered out by style, sun, or water."
-    )
+    st.header("Plant Category Percentages")
+    anchor_pct = st.slider("Anchor", 0, 100, 24)
+    mid_pct = st.slider("Mid Layer", 0, 100, 30)
+    accent_pct = st.slider("Accent Layer", 0, 100, 20)
+    ground_pct = st.slider("Groundcover", 0, 100, 26)
+    total_pct = anchor_pct + mid_pct + accent_pct + ground_pct
+    if total_pct == 0:
+        total_pct = 1
+    hierarchy_split = {
+        "Anchor": anchor_pct / total_pct,
+        "Mid Layer": mid_pct / total_pct,
+        "Accent Layer": accent_pct / total_pct,
+        "Groundcover": ground_pct / total_pct,
+    }
 
-selected_plants = [p for p in base_selected_plants if p["name"] not in excluded_plant_names]
+    st.header("Request a Plant")
+    requested_plant = st.text_input("Plant you want added")
+    if st.button("Submit Plant Request"):
+        if requested_plant.strip():
+            log_event(
+                st.session_state.get("user_email"),
+                "plant_requested",
+                state=state,
+                zone=zone_microclimate,
+                climate=climate,
+                sun_exposure=sun,
+                water_needs=water,
+                design_style=style,
+                density=density,
+                notes=requested_plant.strip()
+            )
+            st.success("Plant request submitted.")
 
-for included_name in included_plant_names:
-    included_plant = next((p for p in runtime_plants if p["name"] == included_name), None)
-    if included_plant and included_plant["name"] not in [p["name"] for p in selected_plants]:
-        selected_plants.append(included_plant)
+forced = [p for p in runtime_plants if p["name"] in include_names]
+selected_plants = [p for p in selected_plants if p["name"] not in exclude_names]
+for p in forced:
+    if p["name"] not in [sp["name"] for sp in selected_plants]:
+        selected_plants.append(p)
 
 background_image = None
 background_array = None
@@ -1567,8 +1357,7 @@ left, right = st.columns([2, 1])
 with left:
     if input_method == "Draw Boundary":
         st.subheader("1. Draw Planting Boundary")
-        st.caption(f"Draw within the {MAX_BED_FEET} ft max bed area. Each grid square represents {GRID_SPACING_FEET} ft.")
-        st.info("Left click to add boundary points. Right click / double click to finish the closed polygon, depending on your browser. The shape must be closed before generating.")
+        st.caption(f"Left click to add boundary points. Close the polygon by clicking near the first point or double-clicking the final point. Each grid square represents {GRID_SPACING_FEET} ft.")
 
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 0, 0)",
@@ -1582,7 +1371,7 @@ with left:
         )
     else:
         st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
-        st.caption("Upload the JPEG as a scaled reference, then click points around the actual planting bed boundary inside the image. Plants will only generate inside the traced polygon, not across the full image rectangle.")
+        st.caption("Click around the planting bedline in order. Use more points for curves. The final segment closes automatically between the last point and first point.")
 
         if uploaded_bed_image is None:
             st.warning("Upload a JPEG image first, then click points around the actual bedline.")
@@ -1601,8 +1390,7 @@ with left:
                 if last_click_key not in st.session_state:
                     st.session_state[last_click_key] = None
 
-                st.info("Left click to select the next bedline point. Continue around the bed. The boundary closes automatically from your last point back to your first point. Use Undo Last Point if needed.")
-                st.caption("Use more points for curves. Plants will generate only inside the traced closed boundary.")
+                st.caption("Click points around the bedline in order. Use more points for curves. The final segment closes automatically between the last and first point.")
 
                 overlay_image = render_trace_overlay(
                     background_image,
@@ -1704,30 +1492,14 @@ generate = st.button("Generate Planting Layout", type="primary")
 # -----------------------------
 
 if generate:
-    try:
-        current_user = refresh_user(st.session_state.user_email)
-        total_generations = current_user.get("total_generations", 0) or 0
-        paid_status = bool(current_user.get("paid_status", False))
-
-        if not paid_status and total_generations >= FREE_GENERATION_LIMIT:
-            st.warning("You’ve used your free planting studies. Upgrade to continue generating layouts.")
-            log_event(
-                st.session_state.user_email,
-                "paywall_shown",
-                state=state,
-                climate=climate,
-                sun_exposure=sun,
-                water_needs=water,
-                design_style=style,
-                density=density
-            )
-
-            if STRIPE_CHECKOUT_URL:
-                st.link_button("Upgrade to Private Beta Access", STRIPE_CHECKOUT_URL)
-            else:
-                st.info("Stripe checkout is not connected yet. Add STRIPE_CHECKOUT_URL to Streamlit Secrets when ready.")
+    if supabase is not None and st.session_state.get("user_email"):
+        user_check = supabase.table("users").select("*").eq("email", st.session_state.user_email).execute()
+        current_user = user_check.data[0] if user_check.data else {}
+        if not current_user.get("paid_status", False) and (current_user.get("total_generations") or 0) >= FREE_GENERATION_LIMIT:
+            st.warning("You have reached the free generation limit.")
+            log_event(st.session_state.user_email, "paywall_shown")
             st.stop()
-
+    try:
         with st.spinner("Generating planting plan and elevation view..."):
             if input_method == "Draw Boundary" and canvas_result is not None:
                 points = get_polygon_from_canvas(canvas_result.json_data)
@@ -1767,16 +1539,16 @@ if generate:
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        hierarchy_coverage_split=hierarchy_coverage_split
+                        hierarchy_split=hierarchy_split
                     )
 
                     if len(placed_instances) == 0:
                         st.warning("No plants could fit inside the boundary. Try a larger area, lower density, or different plant parameters.")
 
                     else:
-                        new_generation_count = update_generation_count(st.session_state.user_email)
+                        new_generation_count = increment_generation_count(st.session_state.get("user_email"))
                         log_event(
-                            st.session_state.user_email,
+                            st.session_state.get("user_email"),
                             "generation_run",
                             state=state,
                             zone=zone_microclimate,
@@ -1785,13 +1557,7 @@ if generate:
                             water_needs=water,
                             design_style=style,
                             density=density,
-                            plants_generated_count=len(placed_instances),
-                            notes=(
-                                f"generation_count={new_generation_count}; "
-                                f"include={included_plant_names}; "
-                                f"exclude={excluded_plant_names}; "
-                                f"mix={hierarchy_coverage_split}"
-                            )
+                            plants_generated_count=len(placed_instances)
                         )
 
                         st.subheader("Plan View")
@@ -1872,32 +1638,26 @@ if generate:
 
                         d1, d2, d3 = st.columns(3)
                         with d1:
-                            if st.download_button(
+                            st.download_button(
                                 label="Download Plan PNG",
                                 data=plan_png,
                                 file_name="yodra-planting-plan.png",
                                 mime="image/png"
-                            ):
-                                update_export_count(st.session_state.user_email)
-                                log_event(st.session_state.user_email, "png_exported", export_type="png", state=state, zone=zone_microclimate, climate=climate, sun_exposure=sun, water_needs=water, design_style=style, density=density)
+                            )
                         with d2:
-                            if st.download_button(
+                            st.download_button(
                                 label="Download Plan SVG",
                                 data=plan_svg,
                                 file_name="yodra-planting-plan.svg",
                                 mime="image/svg+xml"
-                            ):
-                                update_export_count(st.session_state.user_email)
-                                log_event(st.session_state.user_email, "svg_exported", export_type="svg", state=state, zone=zone_microclimate, climate=climate, sun_exposure=sun, water_needs=water, design_style=style, density=density)
+                            )
                         with d3:
-                            if st.download_button(
+                            st.download_button(
                                 label="Download Plan DXF",
                                 data=plan_dxf,
                                 file_name="yodra-planting-plan.dxf",
                                 mime="application/dxf"
-                            ):
-                                update_export_count(st.session_state.user_email)
-                                log_event(st.session_state.user_email, "dxf_exported", export_type="dxf", state=state, zone=zone_microclimate, climate=climate, sun_exposure=sun, water_needs=water, design_style=style, density=density)
+                            )
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
@@ -1916,11 +1676,12 @@ if generate:
                             image_path = plant["image"]
 
                             height = varied_height(plant)
-                            img, resolved_image_path = load_plant_image(image_path, plant=plant)
-                            aspect_ratio = get_image_aspect_ratio(image_path, plant=plant)
+                            aspect_ratio = get_image_aspect_ratio(image_path)
                             width = height * aspect_ratio
 
-                            if img is not None:
+                            if os.path.exists(image_path):
+                                img = plt.imread(image_path)
+
                                 elev_ax.imshow(
                                     img,
                                     extent=(
@@ -1953,37 +1714,19 @@ if generate:
 
                         e1, e2 = st.columns(2)
                         with e1:
-                            if st.download_button(
+                            st.download_button(
                                 label="Download Elevation PNG",
                                 data=elevation_png,
                                 file_name="yodra-planting-elevation.png",
                                 mime="image/png"
-                            ):
-                                update_export_count(st.session_state.user_email)
-                                log_event(st.session_state.user_email, "png_exported", export_type="elevation_png", state=state, zone=zone_microclimate, climate=climate, sun_exposure=sun, water_needs=water, design_style=style, density=density)
+                            )
                         with e2:
-                            if st.download_button(
+                            st.download_button(
                                 label="Download Elevation JPEG",
                                 data=elevation_jpeg,
                                 file_name="yodra-planting-elevation.jpg",
                                 mime="image/jpeg"
-                            ):
-                                update_export_count(st.session_state.user_email)
-                                log_event(st.session_state.user_email, "jpeg_exported", export_type="elevation_jpeg", state=state, zone=zone_microclimate, climate=climate, sun_exposure=sun, water_needs=water, design_style=style, density=density)
-
-
-                        missing_image_paths = sorted({
-                            item["plant"].get("image")
-                            for item in placed_instances
-                            if load_plant_image(item["plant"].get("image"), plant=item["plant"])[0] is None
-                        })
-
-                        if missing_image_paths:
-                            with st.expander("Plant image files not found"):
-                                st.warning("YODRA generated fallback plant codes because these image files were not found in the deployed app. Confirm the plant_images folder and file names are committed to this GitHub branch.")
-                                for missing_path in missing_image_paths:
-                                    st.code(str(missing_path))
-
+                            )
 
                         st.subheader("Plant Count")
 
@@ -2014,7 +1757,6 @@ if generate:
                                 "Height Ft": plant["height_ft"],
                                 "Count": count,
                                 "State": state,
-                                "Zone / Microclimate": zone_microclimate,
                                 "Climate": ", ".join(plant["climate"]),
                                 "Sun": ", ".join(plant["sun"]),
                                 "Water": ", ".join(plant["water"]),
@@ -2022,28 +1764,18 @@ if generate:
                                 "Allows Underplanting": plant.get("allows_underplanting", False)
                             })
 
-                        st.dataframe(schedule, width="stretch")
+                        schedule_df = pd.DataFrame(schedule)
+                        st.dataframe(schedule_df, width="stretch")
 
-                        schedule_csv = schedule_to_csv_bytes(schedule)
-                        if st.download_button(
-                            label="Download Plant Schedule CSV",
-                            data=schedule_csv,
+                        csv_buffer = schedule_df.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label="Download Plant Schedule CSV / Excel",
+                            data=csv_buffer,
                             file_name="yodra-plant-schedule.csv",
-                            mime="text/csv"
-                        ):
-                            update_export_count(st.session_state.user_email)
-                            log_event(
-                                st.session_state.user_email,
-                                "csv_exported",
-                                export_type="csv",
-                                state=state,
-                                climate=climate,
-                                sun_exposure=sun,
-                                water_needs=water,
-                                design_style=style,
-                                density=density,
-                                plants_generated_count=len(placed_instances)
-                            )
+                            mime="text/csv",
+                            on_click=lambda: increment_export_count(st.session_state.get("user_email"))
+                        )
+                        log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
