@@ -39,6 +39,7 @@ import random
 import math
 import os
 import html
+from pathlib import Path
 import base64
 import csv
 from datetime import datetime, timezone
@@ -1110,10 +1111,70 @@ def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
         y += grid_spacing_units
 
 
-def get_image_aspect_ratio(image_path):
+def resolve_plant_image_path(image_path):
+    """Find plant images reliably on Streamlit Cloud and local machines.
+
+    The previous version checked os.path.exists(plant["image"]) only.
+    On Streamlit Cloud, the current working directory can differ from the
+    script location, so relative image paths may fail even when the files
+    are present in the GitHub repo. This function checks several safe
+    locations and returns a real file path when found.
+    """
+    if not image_path:
+        return None
+
+    candidates = []
+    raw_path = Path(str(image_path))
+
+    if raw_path.is_absolute():
+        candidates.append(raw_path)
+    else:
+        try:
+            app_dir = Path(__file__).resolve().parent
+        except Exception:
+            app_dir = Path.cwd()
+
+        candidates.extend([
+            Path.cwd() / raw_path,
+            app_dir / raw_path,
+            app_dir / raw_path.name,
+            app_dir / "plant_images" / raw_path.name,
+            Path.cwd() / "plant_images" / raw_path.name,
+        ])
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+
+    return None
+
+
+def load_plant_image(image_path):
+    """Load a PNG/WebP/JPEG plant cutout with alpha support when available."""
+    resolved_path = resolve_plant_image_path(image_path)
+    if resolved_path is None:
+        return None, None
+
     try:
-        img = plt.imread(image_path)
-        height_px, width_px = img.shape[:2]
+        img = Image.open(resolved_path).convert("RGBA")
+        return img, resolved_path
+    except Exception:
+        try:
+            img = plt.imread(resolved_path)
+            return img, resolved_path
+        except Exception:
+            return None, resolved_path
+
+
+def get_image_aspect_ratio(image_path):
+    img, _ = load_plant_image(image_path)
+    try:
+        if img is None:
+            return 1
+        if isinstance(img, Image.Image):
+            width_px, height_px = img.size
+        else:
+            height_px, width_px = img.shape[:2]
         if height_px == 0:
             return 1
         return width_px / height_px
@@ -1780,12 +1841,11 @@ if generate:
                             image_path = plant["image"]
 
                             height = varied_height(plant)
+                            img, resolved_image_path = load_plant_image(image_path)
                             aspect_ratio = get_image_aspect_ratio(image_path)
                             width = height * aspect_ratio
 
-                            if os.path.exists(image_path):
-                                img = plt.imread(image_path)
-
+                            if img is not None:
                                 elev_ax.imshow(
                                     img,
                                     extent=(
@@ -1835,6 +1895,20 @@ if generate:
                             ):
                                 update_export_count(st.session_state.user_email)
                                 log_event(st.session_state.user_email, "jpeg_exported", export_type="elevation_jpeg", state=state, zone=zone_microclimate, climate=climate, sun_exposure=sun, water_needs=water, design_style=style, density=density)
+
+
+                        missing_image_paths = sorted({
+                            item["plant"].get("image")
+                            for item in placed_instances
+                            if load_plant_image(item["plant"].get("image"))[0] is None
+                        })
+
+                        if missing_image_paths:
+                            with st.expander("Plant image files not found"):
+                                st.warning("YODRA generated fallback plant codes because these image files were not found in the deployed app. Confirm the plant_images folder and file names are committed to this GitHub branch.")
+                                for missing_path in missing_image_paths:
+                                    st.code(str(missing_path))
+
 
                         st.subheader("Plant Count")
 
