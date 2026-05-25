@@ -3,3 +3,4 @@ matplotlib
 shapely
 streamlit-drawable-canvas
 pillow
+supabase
