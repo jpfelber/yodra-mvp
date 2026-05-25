@@ -59,7 +59,7 @@ except Exception:
 # Supabase beta tracking
 # -----------------------------
 
-FREE_GENERATION_LIMIT = 3
+FREE_GENERATION_LIMIT = 999
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -1111,47 +1111,123 @@ def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
         y += grid_spacing_units
 
 
-def resolve_plant_image_path(image_path):
-    """Find plant images reliably on Streamlit Cloud and local machines.
+def slugify_for_file(value):
+    """Normalize plant names and filenames for flexible image matching."""
+    value = str(value or "").lower()
+    keep = []
+    for char in value:
+        if char.isalnum():
+            keep.append(char)
+        else:
+            keep.append("-")
+    slug = "".join(keep)
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug.strip("-")
 
-    The previous version checked os.path.exists(plant["image"]) only.
-    On Streamlit Cloud, the current working directory can differ from the
-    script location, so relative image paths may fail even when the files
-    are present in the GitHub repo. This function checks several safe
-    locations and returns a real file path when found.
+
+def all_repo_image_files():
+    """Return all likely plant image files available to the deployed app."""
+    try:
+        app_dir = Path(__file__).resolve().parent
+    except Exception:
+        app_dir = Path.cwd()
+
+    roots = []
+    for root in [Path.cwd(), app_dir, app_dir / "plant_images", Path.cwd() / "plant_images", app_dir / "images", Path.cwd() / "images", app_dir / "assets", Path.cwd() / "assets"]:
+        if root.exists() and root.is_dir() and root not in roots:
+            roots.append(root)
+
+    files = []
+    extensions = ["*.png", "*.webp", "*.jpg", "*.jpeg", "*.PNG", "*.WEBP", "*.JPG", "*.JPEG"]
+    for root in roots:
+        for ext in extensions:
+            files.extend(root.rglob(ext))
+
+    # de-duplicate while preserving order
+    seen = set()
+    unique_files = []
+    for file in files:
+        key = str(file.resolve())
+        if key not in seen and file.is_file():
+            seen.add(key)
+            unique_files.append(file)
+    return unique_files
+
+
+def resolve_plant_image_path(image_path, plant=None):
+    """Find plant cutout images even when GitHub filenames use PNG instead of WebP.
+
+    This checks:
+    1) the exact path in the plant database
+    2) the same filename with .png/.webp/.jpg/.jpeg
+    3) a flexible lookup by botanical name, common name, code, and filename stem
     """
-    if not image_path:
-        return None
+    possible_extensions = [".png", ".webp", ".jpg", ".jpeg", ".PNG", ".WEBP", ".JPG", ".JPEG"]
+
+    try:
+        app_dir = Path(__file__).resolve().parent
+    except Exception:
+        app_dir = Path.cwd()
 
     candidates = []
-    raw_path = Path(str(image_path))
 
-    if raw_path.is_absolute():
-        candidates.append(raw_path)
-    else:
-        try:
-            app_dir = Path(__file__).resolve().parent
-        except Exception:
-            app_dir = Path.cwd()
+    if image_path:
+        raw_path = Path(str(image_path))
+        base_paths = []
+        if raw_path.is_absolute():
+            base_paths.append(raw_path)
+        else:
+            base_paths.extend([
+                Path.cwd() / raw_path,
+                app_dir / raw_path,
+                app_dir / raw_path.name,
+                app_dir / "plant_images" / raw_path.name,
+                Path.cwd() / "plant_images" / raw_path.name,
+                app_dir / "images" / raw_path.name,
+                Path.cwd() / "images" / raw_path.name,
+                app_dir / "assets" / raw_path.name,
+                Path.cwd() / "assets" / raw_path.name,
+            ])
 
-        candidates.extend([
-            Path.cwd() / raw_path,
-            app_dir / raw_path,
-            app_dir / raw_path.name,
-            app_dir / "plant_images" / raw_path.name,
-            Path.cwd() / "plant_images" / raw_path.name,
-        ])
+        for base in base_paths:
+            candidates.append(base)
+            for ext in possible_extensions:
+                candidates.append(base.with_suffix(ext))
 
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return str(candidate)
 
+    # Flexible scan for mismatched folder/file extensions.
+    search_terms = []
+    if image_path:
+        raw = Path(str(image_path))
+        search_terms.append(slugify_for_file(raw.stem))
+        search_terms.append(slugify_for_file(raw.name))
+
+    if plant:
+        search_terms.extend([
+            slugify_for_file(plant.get("name", "")),
+            slugify_for_file(plant.get("common_name", "")),
+            slugify_for_file(plant.get("code", "")),
+        ])
+
+    search_terms = [term for term in dict.fromkeys(search_terms) if term]
+
+    for file in all_repo_image_files():
+        file_stem = slugify_for_file(file.stem)
+        file_name = slugify_for_file(file.name)
+        for term in search_terms:
+            if term and (term == file_stem or term in file_stem or file_stem in term or term in file_name):
+                return str(file)
+
     return None
 
 
-def load_plant_image(image_path):
-    """Load a PNG/WebP/JPEG plant cutout with alpha support when available."""
-    resolved_path = resolve_plant_image_path(image_path)
+def load_plant_image(image_path, plant=None):
+    """Load a PNG/WebP/JPEG plant cutout with alpha transparency support."""
+    resolved_path = resolve_plant_image_path(image_path, plant=plant)
     if resolved_path is None:
         return None, None
 
@@ -1165,9 +1241,8 @@ def load_plant_image(image_path):
         except Exception:
             return None, resolved_path
 
-
-def get_image_aspect_ratio(image_path):
-    img, _ = load_plant_image(image_path)
+def get_image_aspect_ratio(image_path, plant=None):
+    img, _ = load_plant_image(image_path, plant=plant)
     try:
         if img is None:
             return 1
@@ -1841,8 +1916,8 @@ if generate:
                             image_path = plant["image"]
 
                             height = varied_height(plant)
-                            img, resolved_image_path = load_plant_image(image_path)
-                            aspect_ratio = get_image_aspect_ratio(image_path)
+                            img, resolved_image_path = load_plant_image(image_path, plant=plant)
+                            aspect_ratio = get_image_aspect_ratio(image_path, plant=plant)
                             width = height * aspect_ratio
 
                             if img is not None:
@@ -1900,7 +1975,7 @@ if generate:
                         missing_image_paths = sorted({
                             item["plant"].get("image")
                             for item in placed_instances
-                            if load_plant_image(item["plant"].get("image"))[0] is None
+                            if load_plant_image(item["plant"].get("image"), plant=item["plant"])[0] is None
                         })
 
                         if missing_image_paths:
