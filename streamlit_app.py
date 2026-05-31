@@ -260,39 +260,10 @@ SPACING_BY_DENSITY = {
 }
 
 MAX_PLANTS_BY_DENSITY = {
-    "Low": 120,
-    "Moderate": 180,
-    "Dense": 240,
-    "Very Dense": 320
-}
-
-COMPOSITION_STYLES = [
-    "Naturalistic Composition",
-    "Clustered Massing",
-    "Structured Rhythm",
-]
-
-# These values are intentionally modest. They improve the visual read of the plan
-# without turning the MVP into a complicated drift/community engine.
-COMPOSITION_SETTINGS = {
-    "Naturalistic Composition": {
-        "structure_cluster_count": 3,
-        "accent_cluster_count": 4,
-        "cluster_tightness": 0.13,
-        "matrix_cluster_bias": 0.18,
-    },
-    "Clustered Massing": {
-        "structure_cluster_count": 3,
-        "accent_cluster_count": 3,
-        "cluster_tightness": 0.09,
-        "matrix_cluster_bias": 0.35,
-    },
-    "Structured Rhythm": {
-        "structure_cluster_count": 4,
-        "accent_cluster_count": 4,
-        "cluster_tightness": 0.07,
-        "matrix_cluster_bias": 0.08,
-    },
+    "Low": 180,
+    "Moderate": 260,
+    "Dense": 350,
+    "Very Dense": 500
 }
 
 # Placeholder used only while the plant database is being defined.
@@ -306,592 +277,599 @@ def feet_to_canvas_radius(width_ft):
 
 PLANTS = [
     {
-        "name": "Carex pansa",
-        "common_name": "Sand Dune Sedge",
-        "code": "CP",
-        "state": ["California"],
-        "climate": ["Coastal"],
+        "name": 'Carex pansa',
+        "common_name": 'Sand Dune Sedge',
+        "code": 'CP',
+        "state": ['California'],
+        "climate": ['Coastal'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Moderate-Low"],
-        "spread_ft": 2,
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Moderate-Low'],
+        "spread_ft": 1,
         "height_ft": 1,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Green",
+        "radius": feet_to_canvas_radius(1),
+        "form": 'Grass',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 4,
+        "community_group": 'Coastal Meadow',
+        "texture": 'Fine',
+        "color_tone": 'Green',
         "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/carex-pansa.webp",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/carex-pansa.webp',
         "elevation_height": 28,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
+        "hierarchy": 'Groundcover',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Eriogonum latifolium",
-        "common_name": "Coast Buckwheat",
-        "code": "EL",
-        "state": ["California"],
-        "climate": ["Coastal"],
+        "name": 'Eriogonum latifolium',
+        "common_name": 'Coast Buckwheat',
+        "code": 'EL',
+        "state": ['California'],
+        "climate": ['Coastal'],
         "usda_min": 8,
         "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
+        "sun": ['Full Sun'],
+        "water": ['Low'],
         "spread_ft": 2,
         "height_ft": 2,
         "radius": feet_to_canvas_radius(2),
-        "form": "Perennial",
-        "role": "Accent",
-        "texture": "Medium",
-        "color_tone": "Silver-Green",
+        "form": 'Perennial',
+        "role": 'Accent',
+        "placement_pattern": 'Accent Pocket',
+        "design_tier": 3,
+        "community_group": 'Coastal Meadow',
+        "texture": 'Medium',
+        "color_tone": 'Silver-Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/eriogonum-latifolium.webp",
-        "elevation_height": 34,
-        "hierarchy": "Accent Layer",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/eriogonum-latifolium.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Festuca californica",
-        "common_name": "California Fescue",
-        "code": "FC",
-        "state": ["California"],
-        "climate": ["Coastal"],
+        "name": 'Festuca californica',
+        "common_name": 'California Fescue',
+        "code": 'FC',
+        "state": ['California'],
+        "climate": ['Coastal'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low-Moderate"],
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Low-Moderate'],
         "spread_ft": 2,
         "height_ft": 2,
         "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Blue-Green",
+        "form": 'Grass',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 5,
+        "community_group": 'Coastal Meadow',
+        "texture": 'Fine',
+        "color_tone": 'Blue-Green',
         "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/festuca-californica.webp",
-        "elevation_height": 34,
-        "hierarchy": "Groundcover",
-        "weight": 4,
-        "allows_underplanting": False
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/festuca-californica.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Groundcover',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Salvia spathacea",
-        "common_name": "Hummingbird Sage",
-        "code": "SS",
-        "state": ["California"],
-        "climate": ["Coastal"],
+        "name": 'Salvia spathacea',
+        "common_name": 'Hummingbird Sage',
+        "code": 'SS',
+        "state": ['California'],
+        "climate": ['Coastal'],
         "usda_min": 8,
         "usda_max": 10,
-        "sun": ["Part Shade-Full Shade"],
-        "water": ["Moderate"],
+        "sun": ['Part Shade-Full Shade'],
+        "water": ['Moderate'],
         "spread_ft": 4,
         "height_ft": 2,
         "radius": feet_to_canvas_radius(4),
-        "form": "Perennial",
-        "role": "Accent",
-        "texture": "Bold",
-        "color_tone": "Dark Green",
+        "form": 'Perennial',
+        "role": 'Accent',
+        "placement_pattern": 'Accent Pocket',
+        "design_tier": 3,
+        "community_group": 'Coastal Woodland',
+        "texture": 'Bold',
+        "color_tone": 'Dark Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/salvia-spathacea.webp",
-        "elevation_height": 42,
-        "hierarchy": "Mid Layer",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/salvia-spathacea.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Iris douglasiana",
-        "common_name": "Douglas Iris",
-        "code": "ID",
-        "state": ["California"],
-        "climate": ["Coastal"],
+        "name": 'Iris douglasiana',
+        "common_name": 'Douglas Iris',
+        "code": 'ID',
+        "state": ['California'],
+        "climate": ['Coastal'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Moderate"],
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Moderate'],
         "spread_ft": 2,
         "height_ft": 2,
         "radius": feet_to_canvas_radius(2),
-        "form": "Perennial",
-        "role": "Accent",
-        "texture": "Medium",
-        "color_tone": "Green",
+        "form": 'Perennial',
+        "role": 'Accent',
+        "placement_pattern": 'Drift',
+        "design_tier": 3,
+        "community_group": 'Coastal Meadow',
+        "texture": 'Medium',
+        "color_tone": 'Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/iris-douglasiana.webp",
-        "elevation_height": 42,
-        "hierarchy": "Accent Layer",
+        "seasonality": 'Semi-Evergreen',
+        "image": 'plant_images/iris-douglasiana.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Arbutus menziesii",
-        "common_name": "Pacific Madrone",
-        "code": "AM",
-        "state": ["California"],
-        "climate": ["Coastal", "Woodland"],
+        "name": 'Arbutus menziesii',
+        "common_name": 'Pacific Madrone',
+        "code": 'AM',
+        "state": ['California'],
+        "climate": ['Coastal', 'Woodland'],
         "usda_min": 7,
         "usda_max": 9,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Low'],
         "spread_ft": 20,
         "height_ft": 40,
         "radius": feet_to_canvas_radius(20),
-        "form": "Tree",
-        "role": "Canopy",
-        "texture": "Bold",
-        "color_tone": "Dark Green",
+        "form": 'Tree',
+        "role": 'Canopy',
+        "placement_pattern": 'Specimen',
+        "design_tier": 1,
+        "community_group": 'Coastal Woodland',
+        "texture": 'Bold',
+        "color_tone": 'Dark Green',
         "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/arbutus-menziesii.webp",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/arbutus-menziesii.webp',
         "elevation_height": 135,
-        "hierarchy": "Anchor",
+        "hierarchy": 'Anchor',
         "weight": 1,
-        "allows_underplanting": True
+        "allows_underplanting": True,
     },
     {
         "name": "Arctostaphylos densiflora 'Howard McMinn'",
-        "common_name": "Howard McMinn Manzanita",
-        "code": "AHM",
-        "state": ["California"],
-        "climate": ["Coastal", "Inland"],
+        "common_name": 'Howard McMinn Manzanita',
+        "code": 'AHM',
+        "state": ['California'],
+        "climate": ['Coastal', 'Inland'],
         "usda_min": 8,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
-        "spread_ft": 8,
-        "height_ft": 7,
-        "radius": feet_to_canvas_radius(8),
-        "form": "Shrub",
-        "role": "Structure",
-        "texture": "Medium",
-        "color_tone": "Grey-Green",
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Low'],
+        "spread_ft": 12,
+        "height_ft": 8,
+        "radius": feet_to_canvas_radius(12),
+        "form": 'Shrub',
+        "role": 'Structure',
+        "placement_pattern": 'Anchor Mass',
+        "design_tier": 2,
+        "community_group": 'Coastal Woodland',
+        "texture": 'Medium',
+        "color_tone": 'Grey-Green',
         "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/arctostaphylos-howard-mcminn.webp",
-        "elevation_height": 105,
-        "hierarchy": "Anchor",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/arctostaphylos-howard-mcminn.webp',
+        "elevation_height": 46,
+        "hierarchy": 'Anchor',
         "weight": 2,
-        "allows_underplanting": True
+        "allows_underplanting": True,
     },
     {
-        "name": "Muhlenbergia rigens",
-        "common_name": "Deergrass",
-        "code": "MR",
-        "state": ["California"],
-        "climate": ["Inland"],
+        "name": 'Muhlenbergia rigens',
+        "common_name": 'Deergrass',
+        "code": 'MR',
+        "state": ['California'],
+        "climate": ['Inland'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
+        "sun": ['Full Sun'],
+        "water": ['Low'],
         "spread_ft": 5,
         "height_ft": 4,
         "radius": feet_to_canvas_radius(5),
-        "form": "Grass",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Green",
+        "form": 'Grass',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 4,
+        "community_group": 'Inland Grassland',
+        "texture": 'Fine',
+        "color_tone": 'Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/muhlenbergia-rigens.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Stipa pulchra",
-        "common_name": "Purple Needlegrass",
-        "code": "SP",
-        "state": ["California"],
-        "climate": ["Inland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 2,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Golden Green",
-        "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/stipa-pulchra.webp",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/muhlenbergia-rigens.webp',
         "elevation_height": 34,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
+        "hierarchy": 'Groundcover',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Juncus patens",
-        "common_name": "Common Rush",
-        "code": "JP",
-        "state": ["California"],
-        "climate": ["Inland", "Coastal"],
+        "name": 'Stipa pulchra',
+        "common_name": 'Purple Needlegrass',
+        "code": 'SP',
+        "state": ['California'],
+        "climate": ['Inland'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low-Moderate"],
+        "sun": ['Full Sun'],
+        "water": ['Low'],
         "spread_ft": 3,
         "height_ft": 3,
         "radius": feet_to_canvas_radius(3),
-        "form": "Grass",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Blue-Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/juncus-patens.webp",
-        "elevation_height": 46,
-        "hierarchy": "Groundcover",
-        "weight": 4,
-        "allows_underplanting": False
+        "form": 'Grass',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 5,
+        "community_group": 'Inland Grassland',
+        "texture": 'Fine',
+        "color_tone": 'Golden Green',
+        "visual_weight": 1,
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/stipa-pulchra.webp',
+        "elevation_height": 31,
+        "hierarchy": 'Groundcover',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Eriogonum fasciculatum",
-        "common_name": "California Buckwheat",
-        "code": "EF",
-        "state": ["California"],
-        "climate": ["Inland", "Dry"],
+        "name": 'Juncus patens',
+        "common_name": 'Common Rush',
+        "code": 'JP',
+        "state": ['California'],
+        "climate": ['Inland', 'Coastal'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Low-Moderate'],
+        "spread_ft": 3,
+        "height_ft": 3,
+        "radius": feet_to_canvas_radius(3),
+        "form": 'Grass',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 4,
+        "community_group": 'Inland Riparian',
+        "texture": 'Fine',
+        "color_tone": 'Blue-Green',
+        "visual_weight": 2,
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/juncus-patens.webp',
+        "elevation_height": 31,
+        "hierarchy": 'Groundcover',
+        "weight": 6,
+        "allows_underplanting": False,
+    },
+    {
+        "name": 'Eriogonum fasciculatum',
+        "common_name": 'California Buckwheat',
+        "code": 'EF',
+        "state": ['California'],
+        "climate": ['Inland', 'Dry'],
+        "usda_min": 7,
+        "usda_max": 10,
+        "sun": ['Full Sun'],
+        "water": ['Low'],
         "spread_ft": 5,
         "height_ft": 4,
         "radius": feet_to_canvas_radius(5),
-        "form": "Shrub",
-        "role": "Accent",
-        "texture": "Medium",
-        "color_tone": "Grey-Green",
+        "form": 'Shrub',
+        "role": 'Accent',
+        "placement_pattern": 'Accent Pocket',
+        "design_tier": 3,
+        "community_group": 'Inland Grassland',
+        "texture": 'Medium',
+        "color_tone": 'Grey-Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/eriogonum-fasciculatum.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/eriogonum-fasciculatum.webp',
+        "elevation_height": 34,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Epilobium canum",
-        "common_name": "California Fuchsia",
-        "code": "EC",
-        "state": ["California"],
-        "climate": ["Inland", "Dry"],
+        "name": 'Epilobium canum',
+        "common_name": 'California Fuchsia',
+        "code": 'EC',
+        "state": ['California'],
+        "climate": ['Inland', 'Dry'],
         "usda_min": 8,
         "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
+        "sun": ['Full Sun'],
+        "water": ['Low'],
         "spread_ft": 3,
         "height_ft": 2,
         "radius": feet_to_canvas_radius(3),
-        "form": "Perennial",
-        "role": "Accent",
-        "texture": "Medium",
-        "color_tone": "Green",
+        "form": 'Perennial',
+        "role": 'Accent',
+        "placement_pattern": 'Drift',
+        "design_tier": 3,
+        "community_group": 'Inland Grassland',
+        "texture": 'Medium',
+        "color_tone": 'Green',
         "visual_weight": 2,
-        "seasonality": "Semi-evergreen",
-        "image": "plant_images/epilobium-canum.webp",
-        "elevation_height": 42,
-        "hierarchy": "Accent Layer",
+        "seasonality": 'Summer-Fall',
+        "image": 'plant_images/epilobium-canum.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Artemisia californica",
-        "common_name": "California Sagebrush",
-        "code": "AC",
-        "state": ["California"],
-        "climate": ["Inland", "Dry"],
+        "name": 'Artemisia californica',
+        "common_name": 'California Sagebrush',
+        "code": 'AC',
+        "state": ['California'],
+        "climate": ['Inland', 'Dry'],
         "usda_min": 8,
         "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
+        "sun": ['Full Sun'],
+        "water": ['Low'],
         "spread_ft": 5,
         "height_ft": 4,
         "radius": feet_to_canvas_radius(5),
-        "form": "Shrub",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Silver-Grey",
+        "form": 'Shrub',
+        "role": 'Structure',
+        "placement_pattern": 'Drift',
+        "design_tier": 2,
+        "community_group": 'Dry Chaparral',
+        "texture": 'Fine',
+        "color_tone": 'Silver-Grey',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/artemisia-californica.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/artemisia-californica.webp',
+        "elevation_height": 34,
+        "hierarchy": 'Anchor',
+        "weight": 2,
+        "allows_underplanting": True,
     },
     {
-        "name": "Quercus chrysolepis",
-        "common_name": "Canyon Live Oak",
-        "code": "QC",
-        "state": ["California"],
-        "climate": ["Inland", "Woodland"],
+        "name": 'Quercus chrysolepis',
+        "common_name": 'Canyon Live Oak',
+        "code": 'QC',
+        "state": ['California'],
+        "climate": ['Inland', 'Woodland'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Low'],
         "spread_ft": 30,
         "height_ft": 40,
         "radius": feet_to_canvas_radius(30),
-        "form": "Tree",
-        "role": "Canopy",
-        "texture": "Bold",
-        "color_tone": "Dark Green",
+        "form": 'Tree',
+        "role": 'Canopy',
+        "placement_pattern": 'Specimen',
+        "design_tier": 1,
+        "community_group": 'Oak Woodland',
+        "texture": 'Bold',
+        "color_tone": 'Dark Green',
         "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/quercus-chrysolepis.webp",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/quercus-chrysolepis.webp',
         "elevation_height": 135,
-        "hierarchy": "Anchor",
+        "hierarchy": 'Anchor',
         "weight": 1,
-        "allows_underplanting": True
+        "allows_underplanting": True,
     },
     {
-        "name": "Carex tumulicola",
-        "common_name": "Foothill Sedge",
-        "code": "CT",
-        "state": ["California"],
-        "climate": ["Woodland"],
+        "name": 'Carex tumulicola',
+        "common_name": 'Foothill Sedge',
+        "code": 'CT',
+        "state": ['California'],
+        "climate": ['Woodland'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Part Shade-Full Sun"],
-        "water": ["Moderate-Low"],
+        "sun": ['Part Shade-Full Shade'],
+        "water": ['Moderate-Low'],
         "spread_ft": 2,
-        "height_ft": 2,
+        "height_ft": 1,
         "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "texture": "Fine",
-        "color_tone": "Green",
+        "form": 'Grass',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 4,
+        "community_group": 'Oak Woodland Floor',
+        "texture": 'Fine',
+        "color_tone": 'Green',
         "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/carex-tumulicola.webp",
-        "elevation_height": 34,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/carex-tumulicola.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Groundcover',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Polystichum munitum",
-        "common_name": "Western Sword Fern",
-        "code": "PM",
-        "state": ["California"],
-        "climate": ["Woodland"],
+        "name": 'Polystichum munitum',
+        "common_name": 'Western Sword Fern',
+        "code": 'PM',
+        "state": ['California'],
+        "climate": ['Woodland'],
         "usda_min": 5,
         "usda_max": 9,
-        "sun": ["Part Shade-Full Shade"],
-        "water": ["Moderate"],
+        "sun": ['Part Shade-Full Shade'],
+        "water": ['Moderate'],
         "spread_ft": 4,
         "height_ft": 4,
         "radius": feet_to_canvas_radius(4),
-        "form": "Fern",
-        "role": "Matrix",
-        "texture": "Bold",
-        "color_tone": "Dark Green",
+        "form": 'Fern',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 4,
+        "community_group": 'Oak Woodland Floor',
+        "texture": 'Bold',
+        "color_tone": 'Dark Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/polystichum-munitum.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/polystichum-munitum.webp',
+        "elevation_height": 34,
+        "hierarchy": 'Mid Layer',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Heuchera maxima",
-        "common_name": "Island Alum Root",
-        "code": "HM",
-        "state": ["California"],
-        "climate": ["Woodland"],
+        "name": 'Heuchera maxima',
+        "common_name": 'Island Alum Root',
+        "code": 'HM',
+        "state": ['California'],
+        "climate": ['Woodland'],
         "usda_min": 8,
         "usda_max": 10,
-        "sun": ["Part Shade"],
-        "water": ["Moderate-Low"],
+        "sun": ['Part Shade'],
+        "water": ['Moderate-Low'],
         "spread_ft": 3,
         "height_ft": 2,
         "radius": feet_to_canvas_radius(3),
-        "form": "Perennial",
-        "role": "Accent",
-        "texture": "Medium",
-        "color_tone": "Green",
+        "form": 'Perennial',
+        "role": 'Accent',
+        "placement_pattern": 'Accent Pocket',
+        "design_tier": 3,
+        "community_group": 'Woodland Edge',
+        "texture": 'Medium',
+        "color_tone": 'Green',
         "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/heuchera-maxima.webp",
-        "elevation_height": 42,
-        "hierarchy": "Accent Layer",
+        "seasonality": 'Semi-Evergreen',
+        "image": 'plant_images/heuchera-maxima.webp',
+        "elevation_height": 28,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Ribes sanguineum",
-        "common_name": "Red-Flowering Currant",
-        "code": "RS",
-        "state": ["California"],
-        "climate": ["Woodland"],
+        "name": 'Ribes sanguineum',
+        "common_name": 'Red Flowering Currant',
+        "code": 'RS',
+        "state": ['California'],
+        "climate": ['Woodland'],
         "usda_min": 6,
         "usda_max": 9,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Moderate-Low"],
-        "spread_ft": 6,
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Moderate'],
+        "spread_ft": 8,
         "height_ft": 8,
-        "radius": feet_to_canvas_radius(6),
-        "form": "Shrub",
-        "role": "Accent",
-        "texture": "Medium",
-        "color_tone": "Green",
+        "radius": feet_to_canvas_radius(8),
+        "form": 'Shrub',
+        "role": 'Accent',
+        "placement_pattern": 'Drift',
+        "design_tier": 3,
+        "community_group": 'Woodland Edge',
+        "texture": 'Medium',
+        "color_tone": 'Green',
         "visual_weight": 2,
-        "seasonality": "Deciduous",
-        "image": "plant_images/ribes-sanguineum.webp",
-        "elevation_height": 110,
-        "hierarchy": "Mid Layer",
+        "seasonality": 'Deciduous',
+        "image": 'plant_images/ribes-sanguineum.webp',
+        "elevation_height": 46,
+        "hierarchy": 'Accent Layer',
         "weight": 3,
-        "allows_underplanting": False
+        "allows_underplanting": False,
     },
     {
-        "name": "Woodwardia fimbriata",
-        "common_name": "Giant Chain Fern",
-        "code": "WF",
-        "state": ["California"],
-        "climate": ["Woodland"],
+        "name": 'Woodwardia fimbriata',
+        "common_name": 'Giant Chain Fern',
+        "code": 'WF',
+        "state": ['California'],
+        "climate": ['Woodland'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Part Shade-Full Shade"],
-        "water": ["Moderate"],
+        "sun": ['Part Shade-Full Shade'],
+        "water": ['Moderate'],
         "spread_ft": 6,
         "height_ft": 5,
         "radius": feet_to_canvas_radius(6),
-        "form": "Fern",
-        "role": "Matrix",
-        "texture": "Bold",
-        "color_tone": "Dark Green",
+        "form": 'Fern',
+        "role": 'Matrix',
+        "placement_pattern": 'Drift',
+        "design_tier": 4,
+        "community_group": 'Riparian Woodland',
+        "texture": 'Bold',
+        "color_tone": 'Dark Green',
         "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/woodwardia-fimbriata.webp",
-        "elevation_height": 70,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/woodwardia-fimbriata.webp',
+        "elevation_height": 37,
+        "hierarchy": 'Mid Layer',
+        "weight": 6,
+        "allows_underplanting": False,
     },
     {
-        "name": "Acer circinatum",
-        "common_name": "Vine Maple",
-        "code": "ACI",
-        "state": ["California"],
-        "climate": ["Woodland"],
+        "name": 'Acer circinatum',
+        "common_name": 'Vine Maple',
+        "code": 'AV',
+        "state": ['California'],
+        "climate": ['Woodland'],
         "usda_min": 6,
         "usda_max": 9,
-        "sun": ["Part Shade"],
-        "water": ["Moderate"],
+        "sun": ['Part Shade'],
+        "water": ['Moderate'],
         "spread_ft": 15,
         "height_ft": 20,
         "radius": feet_to_canvas_radius(15),
-        "form": "Tree",
-        "role": "Canopy",
-        "texture": "Medium",
-        "color_tone": "Green",
+        "form": 'Tree',
+        "role": 'Canopy',
+        "placement_pattern": 'Specimen',
+        "design_tier": 1,
+        "community_group": 'Woodland Canopy',
+        "texture": 'Medium',
+        "color_tone": 'Green',
         "visual_weight": 3,
-        "seasonality": "Deciduous",
-        "image": "plant_images/acer-circinatum.webp",
-        "elevation_height": 125,
-        "hierarchy": "Anchor",
+        "seasonality": 'Deciduous',
+        "image": 'plant_images/acer-circinatum.webp',
+        "elevation_height": 82,
+        "hierarchy": 'Anchor',
         "weight": 1,
-        "allows_underplanting": True
+        "allows_underplanting": True,
     },
     {
-        "name": "Heteromeles arbutifolia",
-        "common_name": "Toyon",
-        "code": "HA",
-        "state": ["California"],
-        "climate": ["Woodland", "Inland"],
+        "name": 'Heteromeles arbutifolia',
+        "common_name": 'Toyon',
+        "code": 'HA',
+        "state": ['California'],
+        "climate": ['Woodland', 'Inland'],
         "usda_min": 7,
         "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
+        "sun": ['Full Sun-Part Shade'],
+        "water": ['Low'],
         "spread_ft": 10,
         "height_ft": 15,
         "radius": feet_to_canvas_radius(10),
-        "form": "Shrub",
-        "role": "Structure",
-        "texture": "Medium",
-        "color_tone": "Dark Green",
+        "form": 'Shrub',
+        "role": 'Structure',
+        "placement_pattern": 'Anchor Mass',
+        "design_tier": 2,
+        "community_group": 'Woodland Edge',
+        "texture": 'Medium',
+        "color_tone": 'Dark Green',
         "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/heteromeles-arbutifolia.webp",
-        "elevation_height": 118,
-        "hierarchy": "Anchor",
+        "seasonality": 'Evergreen',
+        "image": 'plant_images/heteromeles-arbutifolia.webp',
+        "elevation_height": 67,
+        "hierarchy": 'Anchor',
         "weight": 2,
-        "allows_underplanting": True
+        "allows_underplanting": True,
     },
 ]
 
 
 
-# -----------------------------
-# MVP composition metadata from Google Sheet
-# -----------------------------
-# These columns let YODRA compose before it packs circles:
-# Design Tier: 1 focal/canopy, 2 structure, 3 accent, 4 matrix.
-# Dominance %: relative visual/area dominance inside a compatible palette.
-# Community Group: plants that should read as the same ecological/design community.
-# Companion Plants: plant codes that should be favored nearby.
-COMPOSITION_DATABASE = {
-    "CP": {"group_min": 8, "group_max": 20, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 70, "community_group": "Coastal Meadow", "companion_plants": ["FC", "ID", "EL"]},
-    "EL": {"group_min": 3, "group_max": 7, "spacing_min_ft": 2, "spacing_max_ft": 4, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 15, "community_group": "Coastal Meadow", "companion_plants": ["CP", "FC", "ID"]},
-    "FC": {"group_min": 5, "group_max": 12, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 50, "community_group": "Coastal Meadow", "companion_plants": ["CP", "EL", "ID"]},
-    "SS": {"group_min": 3, "group_max": 5, "spacing_min_ft": 3, "spacing_max_ft": 5, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 10, "community_group": "Coastal Woodland Edge", "companion_plants": ["ID", "AHM", "CP"]},
-    "ID": {"group_min": 5, "group_max": 9, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 3, "dominance_percent": 15, "community_group": "Coastal Meadow", "companion_plants": ["CP", "FC", "EL"]},
-    "AM": {"group_min": 1, "group_max": 1, "spacing_min_ft": 18, "spacing_max_ft": 25, "placement_pattern": "Specimen", "edge_preference": "Back", "design_tier": 1, "dominance_percent": 5, "community_group": "Coastal Woodland", "companion_plants": ["AHM", "SS"]},
-    "AHM": {"group_min": 1, "group_max": 3, "spacing_min_ft": 8, "spacing_max_ft": 12, "placement_pattern": "Anchor Mass", "edge_preference": "Edge", "design_tier": 2, "dominance_percent": 15, "community_group": "Coastal Woodland", "companion_plants": ["AM", "SS", "ID"]},
 
-    "MR": {"group_min": 5, "group_max": 12, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 60, "community_group": "Inland Grassland", "companion_plants": ["SP", "EF", "EC"]},
-    "SP": {"group_min": 10, "group_max": 25, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 70, "community_group": "Inland Grassland", "companion_plants": ["MR", "EF", "EC"]},
-    "JP": {"group_min": 5, "group_max": 10, "spacing_min_ft": 2, "spacing_max_ft": 4, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 35, "community_group": "Inland Riparian", "companion_plants": ["MR", "EF"]},
-    "EF": {"group_min": 3, "group_max": 5, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 20, "community_group": "Inland Grassland", "companion_plants": ["SP", "MR", "EC"]},
-    "EC": {"group_min": 5, "group_max": 10, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 10, "community_group": "Inland Grassland", "companion_plants": ["EF", "SP"]},
-    "AC": {"group_min": 4, "group_max": 8, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 2, "dominance_percent": 25, "community_group": "Dry Chaparral", "companion_plants": ["EF", "EC"]},
-    "QC": {"group_min": 1, "group_max": 1, "spacing_min_ft": 25, "spacing_max_ft": 35, "placement_pattern": "Specimen", "edge_preference": "Back", "design_tier": 1, "dominance_percent": 5, "community_group": "Oak Woodland", "companion_plants": ["AC", "EF"]},
-
-    "CT": {"group_min": 8, "group_max": 20, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 70, "community_group": "Oak Woodland Floor", "companion_plants": ["PM", "HM"]},
-    "PM": {"group_min": 5, "group_max": 12, "spacing_min_ft": 3, "spacing_max_ft": 5, "placement_pattern": "Drift", "edge_preference": "Interior", "design_tier": 4, "dominance_percent": 50, "community_group": "Oak Woodland Floor", "companion_plants": ["CT", "HM", "WF"]},
-    "HM": {"group_min": 5, "group_max": 9, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 15, "community_group": "Woodland Edge", "companion_plants": ["PM", "CT"]},
-    "RS": {"group_min": 3, "group_max": 5, "spacing_min_ft": 5, "spacing_max_ft": 7, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 15, "community_group": "Woodland Edge", "companion_plants": ["PM", "HM"]},
-    "WF": {"group_min": 3, "group_max": 7, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Interior", "design_tier": 4, "dominance_percent": 40, "community_group": "Riparian Woodland", "companion_plants": ["PM", "CT"]},
-    "ACI": {"group_min": 1, "group_max": 1, "spacing_min_ft": 12, "spacing_max_ft": 20, "placement_pattern": "Specimen", "edge_preference": "Back", "design_tier": 1, "dominance_percent": 5, "community_group": "Woodland Canopy", "companion_plants": ["PM", "HM"]},
-    "HA": {"group_min": 1, "group_max": 3, "spacing_min_ft": 10, "spacing_max_ft": 15, "placement_pattern": "Anchor Mass", "edge_preference": "Edge", "design_tier": 2, "dominance_percent": 20, "community_group": "Woodland Edge", "companion_plants": ["ACI", "RS"]},
-}
-
-
-def apply_composition_database(plants):
-    enriched = []
-    for plant in plants:
-        p = plant.copy()
-        meta = COMPOSITION_DATABASE.get(p.get("code"), {})
-        p.update(meta)
-        p.setdefault("group_min", 1)
-        p.setdefault("group_max", 3)
-        p.setdefault("spacing_min_ft", p.get("spread_ft", 2))
-        p.setdefault("spacing_max_ft", max(p.get("spread_ft", 2), p.get("spacing_min_ft", 2)))
-        p.setdefault("placement_pattern", "Drift")
-        p.setdefault("edge_preference", "Any")
-        p.setdefault("design_tier", {"Canopy": 1, "Structure": 2, "Accent": 3, "Matrix": 4}.get(p.get("role"), 4))
-        p.setdefault("dominance_percent", max(5, int(p.get("weight", 1)) * 10))
-        p.setdefault("community_group", ", ".join(p.get("climate", [])))
-        p.setdefault("companion_plants", [])
-        enriched.append(p)
-    return enriched
-
-PLANTS = apply_composition_database(PLANTS)
-
-
-ROLE_ORDER = sorted({plant["role"] for plant in PLANTS})
+ROLE_ORDER = ["Canopy", "Structure", "Matrix", "Accent"]
 
 DEFAULT_ROLE_COVERAGE_PERCENTAGES = {
     "Canopy": 12,
@@ -979,14 +957,7 @@ def weighted_choice(plants):
     if not plants:
         return None
 
-    # Dominance % is the main MVP composition weight.
-    # Design Tier then slightly reinforces hierarchy without overpowering dominance.
-    tier_multiplier = {1: 0.7, 2: 1.0, 3: 0.85, 4: 1.25}
-    weights = []
-    for p in plants:
-        dominance = float(p.get("dominance_percent", p.get("weight", 1) * 10) or 1)
-        tier = int(p.get("design_tier", 4) or 4)
-        weights.append(max(0.1, dominance * tier_multiplier.get(tier, 1.0)))
+    weights = [p.get("weight", 1) for p in plants]
     return random.choices(plants, weights=weights, k=1)[0]
 
 
@@ -1076,356 +1047,6 @@ def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_t
         total_placed_area += placed_area
 
     return all_placed, total_placed_area / boundary_area
-
-
-def random_point_inside(poly, radius=0, max_attempts=1200):
-    """Return a random point whose plant circle fits inside the polygon."""
-    minx, miny, maxx, maxy = poly.bounds
-    for _ in range(max_attempts):
-        x = random.uniform(minx + radius, maxx - radius)
-        y = random.uniform(miny + radius, maxy - radius)
-        if circle_inside(poly, x, y, radius):
-            return x, y
-    return None
-
-def point_with_preference(poly, radius=0, preference="Any", max_attempts=1600):
-    """Return a valid point honoring broad design intent from the Google Sheet."""
-    preference = (preference or "Any").strip().lower()
-    minx, miny, maxx, maxy = poly.bounds
-    height = max(1, maxy - miny)
-    width = max(1, maxx - minx)
-    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
-    centroid = poly.centroid
-
-    for _ in range(max_attempts):
-        x = random.uniform(minx + radius, maxx - radius)
-        y = random.uniform(miny + radius, maxy - radius)
-        if not circle_inside(poly, x, y, radius):
-            continue
-
-        point = Point(x, y)
-        dist_to_edge = point.distance(poly.boundary)
-
-        if preference == "back" and y > miny + height * 0.42:
-            continue
-        if preference == "edge" and dist_to_edge > diag * 0.16:
-            continue
-        if preference == "interior" and dist_to_edge < diag * 0.10:
-            continue
-
-        return x, y
-
-    return random_point_inside(poly, radius)
-
-
-def get_species_target_area(target_area, plants):
-    """Split a layer target by dominance percent instead of treating species equally."""
-    total = sum(max(1, float(p.get("dominance_percent", 10) or 10)) for p in plants) or 1
-    return {p["code"]: target_area * (max(1, float(p.get("dominance_percent", 10) or 10)) / total) for p in plants}
-
-
-def grouped_species_order(plants):
-    """Order plants by design tier, then dominance. Lower tier number places earlier."""
-    return sorted(plants, key=lambda p: (int(p.get("design_tier", 4) or 4), -float(p.get("dominance_percent", 10) or 10)))
-
-
-def make_composition_centers(poly, count, edge_preference=False):
-    """Create loose visual anchor points for clusters/masses."""
-    centers = []
-    centroid = poly.centroid
-    minx, miny, maxx, maxy = poly.bounds
-    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
-
-    attempts = 0
-    while len(centers) < count and attempts < 2500:
-        attempts += 1
-        pt = random_point_inside(poly, 0)
-        if pt is None:
-            break
-
-        x, y = pt
-        if edge_preference:
-            # Avoid all anchors falling dead-center; structure plants often read better
-            # when they hold edges, corners, or back-of-bed positions.
-            d_centroid = math.dist((x, y), (centroid.x, centroid.y))
-            if d_centroid < diag * 0.18 and random.random() < 0.75:
-                continue
-
-        min_center_spacing = diag * (0.18 if count <= 3 else 0.13)
-        if all(math.dist((x, y), c) >= min_center_spacing for c in centers):
-            centers.append((x, y))
-
-    if not centers:
-        fallback = random_point_inside(poly, 0)
-        if fallback is not None:
-            centers.append(fallback)
-
-    return centers
-
-
-def point_near_center(poly, center, radius, spread):
-    """Find a point near a cluster center, falling back to any valid point."""
-    cx, cy = center
-    minx, miny, maxx, maxy = poly.bounds
-    spread = max(spread, radius * 2.5, 8)
-
-    for _ in range(800):
-        x = random.gauss(cx, spread)
-        y = random.gauss(cy, spread)
-        if x < minx + radius or x > maxx - radius or y < miny + radius or y > maxy - radius:
-            continue
-        if circle_inside(poly, x, y, radius):
-            return x, y
-
-    return random_point_inside(poly, radius)
-
-
-def relaxed_overlap(x, y, r, placed, spacing_factor, plant=None):
-    """A stricter overlap test for visible design composition.
-
-    Canopy plants may still allow underplanting, but structure shrubs no longer create
-    a free overlap pass. This prevents the MVP from producing visually messy circles.
-    """
-    for p in placed:
-        existing_plant = p["plant"]
-        existing_role = existing_plant.get("role", "")
-        current_role = plant.get("role", "") if plant else ""
-
-        existing_allows_underplanting = existing_plant.get("allows_underplanting", False) and existing_role == "Canopy"
-        current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False) and current_role == "Canopy"
-
-        if existing_allows_underplanting and current_role in ["Matrix", "Accent"]:
-            continue
-        if current_allows_underplanting and existing_role in ["Matrix", "Accent"]:
-            continue
-
-        distance = math.dist((x, y), (p["x"], p["y"]))
-        min_distance = (r + p["radius"]) * spacing_factor
-        if distance < min_distance:
-            return True
-
-    return False
-
-
-def place_from_candidates(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total, centers=None, cluster_spread=40, matrix_bias=0.0):
-    """Place a role/layer using Google Sheet composition metadata.
-
-    This is the key MVP upgrade:
-    - Species targets are split by Dominance %, not random equality.
-    - Design Tier determines order.
-    - Group Min/Max creates masses, drifts, and pockets.
-    - Edge Preference steers back/edge/interior plants.
-    - Companion Plants are encouraged by reusing nearby centers when possible.
-    """
-    if not plants:
-        return [], 0
-
-    placed_layer = []
-    placed_area = 0
-    max_attempts = 8000
-    attempts = 0
-    species_targets = get_species_target_area(target_area, plants)
-    code_to_recent_centers = {}
-
-    minx, miny, maxx, maxy = poly.bounds
-    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
-
-    for plant in grouped_species_order(plants):
-        if len(existing_placed) + len(placed_layer) >= max_plants_total:
-            break
-
-        species_target = species_targets.get(plant["code"], target_area / max(1, len(plants)))
-        species_area = 0
-        r = plant["radius"]
-        pattern = plant.get("placement_pattern", "Drift")
-        edge_pref = plant.get("edge_preference", "Any")
-        group_min = int(plant.get("group_min", 1) or 1)
-        group_max = max(group_min, int(plant.get("group_max", group_min) or group_min))
-
-        if pattern in ["Specimen"] or int(plant.get("design_tier", 4)) == 1:
-            group_min = group_max = 1
-        elif pattern in ["Anchor Mass"]:
-            group_max = min(group_max, 3)
-
-        # Convert sheet spacing values into a local spacing adjustment.
-        desired_spacing_ft = (float(plant.get("spacing_min_ft", plant.get("spread_ft", 2))) + float(plant.get("spacing_max_ft", plant.get("spread_ft", 2)))) / 2
-        spread_ft = max(0.5, float(plant.get("spread_ft", desired_spacing_ft) or desired_spacing_ft))
-        local_spacing_factor = max(0.92, min(1.45, spacing_factor * desired_spacing_ft / spread_ft))
-
-        # Dominant matrix species should read as fields, not single circles.
-        if int(plant.get("design_tier", 4)) == 4:
-            local_cluster_spread = max(cluster_spread, diag * 0.16)
-        elif pattern == "Accent Pocket":
-            local_cluster_spread = max(r * 3.5, diag * 0.075)
-        elif pattern == "Anchor Mass":
-            local_cluster_spread = max(r * 2.2, diag * 0.09)
-        else:
-            local_cluster_spread = max(r * 3.0, cluster_spread)
-
-        while species_area < species_target and attempts < max_attempts and len(existing_placed) + len(placed_layer) < max_plants_total:
-            attempts += 1
-
-            companion_centers = []
-            for code in plant.get("companion_plants", []):
-                companion_centers.extend(code_to_recent_centers.get(code, []))
-
-            if companion_centers and random.random() < 0.55:
-                center = random.choice(companion_centers)
-            elif centers and random.random() < max(0.20, min(0.85, 1.0 - matrix_bias)):
-                center = random.choice(centers)
-            else:
-                center = point_with_preference(poly, r, edge_pref)
-
-            if center is None:
-                continue
-
-            group_count = random.randint(group_min, group_max)
-            if species_area + math.pi * (r ** 2) * group_count > species_target * 1.35:
-                group_count = max(1, int((species_target - species_area) / max(math.pi * (r ** 2), 1)))
-
-            group_placed = 0
-            for _ in range(max(1, group_count)):
-                if len(existing_placed) + len(placed_layer) >= max_plants_total:
-                    break
-
-                if pattern == "Specimen":
-                    pt = center
-                else:
-                    pt = point_near_center(poly, center, r, local_cluster_spread)
-
-                if pt is None:
-                    continue
-
-                x, y = pt
-                all_existing = existing_placed + placed_layer
-                if relaxed_overlap(x, y, r, all_existing, local_spacing_factor, plant):
-                    continue
-
-                placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
-                species_area += math.pi * (r ** 2)
-                placed_area += math.pi * (r ** 2)
-                group_placed += 1
-                code_to_recent_centers.setdefault(plant["code"], []).append((x, y))
-
-            # If nothing in the group could place, try another center.
-            if group_placed == 0:
-                continue
-
-    return placed_layer, placed_area
-
-def composition_role_order(active_roles):
-    # Professional planting hierarchy: focal/anchor first, structure second,
-    # matrix field third, accents last so they land as moments, not noise.
-    preferred = ["Canopy", "Structure", "Matrix", "Accent"]
-    ordered = [role for role in preferred if role in active_roles]
-    ordered.extend([role for role in active_roles if role not in ordered])
-    return ordered
-
-
-def pack_composed_layout(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, composition_style="Naturalistic Composition"):
-    """Composition-first packing.
-
-    This keeps the MVP simple but makes the visual result more intentional:
-    1. Canopy/large anchors first.
-    2. Structure plants in readable masses.
-    3. Matrix plants fill the field.
-    4. Accent plants occur near structure/anchor moments.
-    """
-    boundary_area = poly.area
-    if boundary_area <= 0:
-        return [], 0, []
-
-    settings = COMPOSITION_SETTINGS.get(composition_style, COMPOSITION_SETTINGS["Naturalistic Composition"])
-    total_target_area = boundary_area * target_coverage
-    all_placed = []
-    total_placed_area = 0
-
-    active_roles = [role for role in ROLE_ORDER if any(p["role"] == role for p in plant_pool)]
-    if not active_roles:
-        return [], 0, []
-
-    minx, miny, maxx, maxy = poly.bounds
-    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
-    cluster_spread = diag * settings["cluster_tightness"]
-
-    structure_centers = make_composition_centers(
-        poly,
-        settings["structure_cluster_count"],
-        edge_preference=True,
-    )
-    accent_centers = list(structure_centers)
-
-    role_debug = []
-
-    for role in composition_role_order(active_roles):
-        role_plants = [p for p in plant_pool if p["role"] == role]
-        if not role_plants:
-            continue
-
-        # Database-driven role allocation. Role percentages/sliders were removed
-        # because they fought the hierarchy already stored in the sheet.
-        role_plants_dominance = sum(max(1, float(p.get("dominance_percent", 10) or 10)) for p in role_plants)
-        total_palette_dominance = sum(max(1, float(p.get("dominance_percent", 10) or 10)) for p in plant_pool) or 1
-        layer_target_area = total_target_area * (role_plants_dominance / total_palette_dominance)
-
-        # Protect the main design hierarchy: Tier 1 and Tier 2 should not consume the whole bed,
-        # even if their circles are large. Matrix should remain the dominant visual field.
-        if role == "Canopy":
-            layer_target_area = min(layer_target_area, total_target_area * 0.12)
-        elif role == "Structure":
-            layer_target_area = min(layer_target_area, total_target_area * 0.22)
-        elif role == "Accent":
-            layer_target_area = min(layer_target_area, total_target_area * 0.20)
-        elif role == "Matrix":
-            layer_target_area = max(layer_target_area, total_target_area * 0.46)
-
-        if layer_target_area <= 0:
-            continue
-
-        if role == "Canopy":
-            centers = make_composition_centers(poly, max(1, min(2, len(role_plants))), edge_preference=True)
-            layer, area = place_from_candidates(
-                poly, role_plants, layer_target_area, max(spacing_factor, 1.2),
-                all_placed, max_plants_total, centers=centers, cluster_spread=diag * 0.18
-            )
-            accent_centers.extend([(p["x"], p["y"]) for p in layer])
-
-        elif role == "Structure":
-            layer, area = place_from_candidates(
-                poly, role_plants, layer_target_area, max(spacing_factor, 1.12),
-                all_placed, max_plants_total, centers=structure_centers, cluster_spread=cluster_spread
-            )
-            accent_centers.extend([(p["x"], p["y"]) for p in layer])
-
-        elif role == "Matrix":
-            # Matrix should read as a continuous field, with only a modest clustering bias.
-            layer, area = place_from_candidates(
-                poly, role_plants, layer_target_area, spacing_factor,
-                all_placed, max_plants_total, centers=structure_centers,
-                cluster_spread=diag * 0.22, matrix_bias=settings["matrix_cluster_bias"]
-            )
-
-        elif role == "Accent":
-            if not accent_centers:
-                accent_centers = make_composition_centers(poly, settings["accent_cluster_count"], edge_preference=False)
-            layer, area = place_from_candidates(
-                poly, role_plants, layer_target_area, max(spacing_factor, 1.05),
-                all_placed, max_plants_total, centers=accent_centers,
-                cluster_spread=diag * 0.11
-            )
-
-        else:
-            layer, area = place_from_candidates(
-                poly, role_plants, layer_target_area, spacing_factor,
-                all_placed, max_plants_total
-            )
-
-        all_placed.extend(layer)
-        total_placed_area += area
-        role_debug.append({"Role": role, "Count": len(layer), "Coverage Sq Ft Equivalent": round(canvas_area_to_sqft(area, feet_per_canvas_unit), 1) if 'feet_per_canvas_unit' in globals() else round(area, 1)})
-
-    return all_placed, total_placed_area / boundary_area, role_debug
-
 
 def sun_is_compatible(selected_sun, plant_sun_options):
     sun_compatibility = {
@@ -1655,6 +1276,7 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
         svg.write(f'<polygon points="{zone_path}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4 4" opacity="0.45"/>\n')
         svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(role)} zone</text>\n')
 
+
     for item in placed_instances:
         plant = item["plant"]
         dash = ' stroke-dasharray="6 4"' if plant.get("allows_underplanting", False) else ""
@@ -1781,14 +1403,6 @@ with st.sidebar:
         ["Low", "Moderate", "Dense", "Very Dense"]
     )
 
-    st.header("Composition")
-    composition_style = st.selectbox(
-        "Layout Character",
-        COMPOSITION_STYLES,
-        index=0,
-        help="Improves the visual read of the plan without adding complex drift/community controls."
-    )
-
     target_coverage = DENSITY_OPTIONS[density]
     spacing_factor = SPACING_BY_DENSITY[density]
     max_plants_total = MAX_PLANTS_BY_DENSITY[density]
@@ -1810,7 +1424,19 @@ with st.sidebar:
     include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
-    st.caption("Composition is now controlled by the plant database: Design Tier, Dominance %, Placement Pattern, Group Min/Max, Edge Preference, Community Group, and Companion Plants.")
+    st.header("Role Percentages")
+    st.caption("These sliders use the exact Role values from the plant database.")
+    role_percentages = {}
+    for role in ROLE_ORDER:
+        role_percentages[role] = st.slider(role, 0, 100, default_role_percentage(role), key=f"role_pct_{role}")
+
+    total_pct = sum(role_percentages.values())
+    if total_pct == 0:
+        total_pct = 1
+    role_split = {
+        role: value / total_pct
+        for role, value in role_percentages.items()
+    }
 forced = [p for p in runtime_plants if p["name"] in include_names]
 selected_plants = [p for p in selected_plants if p["name"] not in exclude_names]
 for p in forced:
@@ -1943,7 +1569,7 @@ with right:
             canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
             st.write(f"**{plant['name']}**")
             st.caption(
-                f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | spread: {plant['spread_ft']} ft{canopy_note}"
+                f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | {plant.get('placement_pattern', '')} | Tier {plant.get('design_tier', '')} | spread: {plant['spread_ft']} ft{canopy_note}"
             )
 
 # -----------------------------
@@ -2027,13 +1653,13 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
-                    placed_instances, actual_coverage, role_debug = pack_composed_layout(
+                    placed_instances, actual_coverage = pack_by_role(
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        composition_style=composition_style
+                        role_split=role_split
                     )
 
                     if len(placed_instances) == 0:
@@ -2049,8 +1675,8 @@ if generate:
                             climate=climate,
                             sun_exposure=sun,
                             water_needs=water,
-                            design_style=composition_style,
-                            notes=f"density={density}; plants_generated={len(placed_instances)}"
+                                        density=density,
+                            plants_generated_count=len(placed_instances)
                         )
 
                         st.subheader("Plan View")
@@ -2156,11 +1782,6 @@ if generate:
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
-                        st.caption(f"Composition style: {composition_style}")
-
-                        if role_debug:
-                            with st.expander("Composition Summary"):
-                                st.dataframe(pd.DataFrame(role_debug), width="stretch")
 
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
@@ -2244,6 +1865,9 @@ if generate:
                                 "Common Name": plant["common_name"],
                                 "Form": plant["form"],
                                 "Role": plant["role"],
+                                "Placement Pattern": plant.get("placement_pattern", ""),
+                                "Design Tier": plant.get("design_tier", ""),
+                                "Community Group": plant.get("community_group", ""),
                                 "Texture": plant["texture"],
                                 "Color Tone": plant["color_tone"],
                                 "Visual Weight": plant["visual_weight"],
@@ -2256,17 +1880,7 @@ if generate:
                                 "Sun": ", ".join(plant["sun"]),
                                 "Water": ", ".join(plant["water"]),
                                 "Seasonality": plant["seasonality"],
-                                "Allows Underplanting": plant.get("allows_underplanting", False),
-                                "Design Tier": plant.get("design_tier"),
-                                "Dominance %": plant.get("dominance_percent"),
-                                "Community Group": plant.get("community_group"),
-                                "Companion Plants": ", ".join(plant.get("companion_plants", [])),
-                                "Placement Pattern": plant.get("placement_pattern"),
-                                "Edge Preference": plant.get("edge_preference"),
-                                "Group Min": plant.get("group_min"),
-                                "Group Max": plant.get("group_max"),
-                                "Spacing Min Ft": plant.get("spacing_min_ft"),
-                                "Spacing Max Ft": plant.get("spacing_max_ft")
+                                "Allows Underplanting": plant.get("allows_underplanting", False)
                             })
 
                         schedule_df = pd.DataFrame(schedule)
