@@ -166,6 +166,7 @@ beta_email_gate()
 
 import random
 import math
+import time
 import os
 import html
 import base64
@@ -260,11 +261,26 @@ SPACING_BY_DENSITY = {
 }
 
 MAX_PLANTS_BY_DENSITY = {
-    "Low": 180,
-    "Moderate": 260,
-    "Dense": 350,
-    "Very Dense": 500
+    "Low": 120,
+    "Moderate": 170,
+    "Dense": 230,
+    "Very Dense": 300
 }
+
+# -----------------------------
+# Generation guardrails
+# -----------------------------
+# These prevent Streamlit from sitting on Running when the layout becomes
+# over-constrained by density, large plant spreads, or grouped placement.
+GENERATION_TIMEOUT_SECONDS = 18
+MAX_LAYER_GROUP_ATTEMPTS = 320
+MAX_GROUP_PLANT_ATTEMPTS_PER_PLANT = 70
+MAX_GROUP_CENTER_ATTEMPTS = 120
+MAX_RANDOM_POINT_ATTEMPTS = 80
+MAX_CONSECUTIVE_GROUP_FAILURES = 80
+
+def generation_timed_out(deadline):
+    return deadline is not None and time.monotonic() > deadline
 
 # Placeholder used only while the plant database is being defined.
 # Runtime radii are recalculated after the active bed scale is known.
@@ -1034,7 +1050,7 @@ def random_point_in_poly(poly, radius):
     if maxx - minx < radius * 2 or maxy - miny < radius * 2:
         return None
 
-    for _ in range(500):
+    for _ in range(MAX_RANDOM_POINT_ATTEMPTS):
         x = random.uniform(minx + radius, maxx - radius)
         y = random.uniform(miny + radius, maxy - radius)
         if circle_inside(poly, x, y, radius):
@@ -1049,7 +1065,7 @@ def random_group_center(poly, radius, edge_preference="Any"):
     width = maxx - minx
     height = maxy - miny
 
-    for _ in range(900):
+    for _ in range(MAX_GROUP_CENTER_ATTEMPTS):
         if edge_preference == "Back":
             # In screen coordinates, smaller y reads as farther/back.
             x = random.uniform(minx + radius, maxx - radius)
@@ -1091,7 +1107,7 @@ def make_candidate_near_group_center(center_x, center_y, group_radius_units, pla
     return x, y
 
 
-def place_plant_group(poly, plant, target_group_count, spacing_factor, existing_placed, feet_per_canvas_unit, behavior, max_plants_total):
+def place_plant_group(poly, plant, target_group_count, spacing_factor, existing_placed, feet_per_canvas_unit, behavior, max_plants_total, deadline=None):
     """Place a cohesive group of the same plant.
 
     The group center is selected based on role behavior, then individual
@@ -1118,12 +1134,13 @@ def place_plant_group(poly, plant, target_group_count, spacing_factor, existing_
 
     center_x, center_y = center
     attempts = 0
-    max_attempts = max(1200, target_group_count * 350)
+    max_attempts = max(120, target_group_count * MAX_GROUP_PLANT_ATTEMPTS_PER_PLANT)
 
     while (
         len(placed_group) < target_group_count
         and attempts < max_attempts
         and len(existing_placed) + len(placed_group) < max_plants_total
+        and not generation_timed_out(deadline)
     ):
         attempts += 1
 
@@ -1170,7 +1187,8 @@ def pack_layer_by_groups(
     feet_per_canvas_unit,
     grouping_scale,
     spacing_character,
-    composition_style
+    composition_style,
+    deadline=None
 ):
     if not plants:
         return [], 0
@@ -1178,12 +1196,15 @@ def pack_layer_by_groups(
     placed_layer = []
     placed_area = 0
     attempts = 0
-    max_attempts = 5000
+    max_attempts = MAX_LAYER_GROUP_ATTEMPTS
+    consecutive_failures = 0
 
     while (
         placed_area < target_area
         and attempts < max_attempts
+        and consecutive_failures < MAX_CONSECUTIVE_GROUP_FAILURES
         and len(existing_placed) + len(placed_layer) < max_plants_total
+        and not generation_timed_out(deadline)
     ):
         attempts += 1
         plant = weighted_choice(plants)
@@ -1211,12 +1232,15 @@ def pack_layer_by_groups(
             existing_placed=existing_placed + placed_layer,
             feet_per_canvas_unit=feet_per_canvas_unit,
             behavior=behavior,
-            max_plants_total=max_plants_total
+            max_plants_total=max_plants_total,
+            deadline=deadline
         )
 
         if not placed_group:
+            consecutive_failures += 1
             continue
 
+        consecutive_failures = 0
         placed_layer.extend(placed_group)
         placed_area += group_area
 
@@ -1233,7 +1257,8 @@ def pack_by_role(
     feet_per_canvas_unit=1,
     grouping_scale="Balanced",
     spacing_character="Balanced",
-    composition_style="Naturalistic Drift"
+    composition_style="Naturalistic Drift",
+    deadline=None
 ):
     boundary_area = poly.area
 
@@ -1244,7 +1269,9 @@ def pack_by_role(
     all_placed = []
     total_placed_area = 0
 
-    active_roles = [role for role in ROLE_ORDER if any(p["role"] == role for p in plant_pool)]
+    design_role_order = ["Canopy", "Structure", "Matrix", "Accent"]
+    active_roles = [role for role in design_role_order if any(p["role"] == role for p in plant_pool)]
+    active_roles += [role for role in ROLE_ORDER if role not in active_roles and any(p["role"] == role for p in plant_pool)]
 
     if not active_roles:
         return [], 0
@@ -1256,8 +1283,10 @@ def pack_by_role(
             for role in active_roles
         }
 
-    # Place in design hierarchy order.
+    # Place in design hierarchy order and stop gracefully if the generation budget is exhausted.
     for role in active_roles:
+        if generation_timed_out(deadline):
+            break
         role_plants = [p for p in plant_pool if p["role"] == role]
 
         if not role_plants:
@@ -1512,17 +1541,6 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
         svg.write(f'<polygon points="{zone_path}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4 4" opacity="0.45"/>\n')
         svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(role)} zone</text>\n')
 
-    for role, zone_points in (role_zones or {}).items():
-        if not zone_points or len(zone_points) < 3:
-            continue
-        closed_zone = zone_points + [zone_points[0]]
-        layer_name = f"ROLE_ZONE_{role.upper().replace(' ', '_')}"
-        for i in range(len(closed_zone) - 1):
-            x1, y1 = closed_zone[i]
-            x2, y2 = closed_zone[i + 1]
-            dxf.write("0\nLINE\n8\n" + layer_name + "\n")
-            dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
-            dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
 
     for item in placed_instances:
         plant = item["plant"]
@@ -1893,7 +1911,10 @@ if generate:
             log_event(st.session_state.user_email, "paywall_shown")
             st.stop()
     try:
+        generation_deadline = time.monotonic() + GENERATION_TIMEOUT_SECONDS
+        status = st.empty()
         with st.spinner("Generating planting plan and elevation view..."):
+            status.info("Analyzing planting boundary...")
             if input_method == "Draw Boundary" and canvas_result is not None:
                 points = get_polygon_from_canvas(canvas_result.json_data)
             elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
@@ -1923,6 +1944,7 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
+                    status.info("Composing grouped planting layout...")
                     placed_instances, actual_coverage = pack_by_role(
                         poly=poly,
                         plant_pool=selected_plants,
@@ -1933,8 +1955,12 @@ if generate:
                         feet_per_canvas_unit=feet_per_canvas_unit,
                         grouping_scale=grouping_scale,
                         spacing_character=spacing_character,
-                        composition_style=composition_style
+                        composition_style=composition_style,
+                        deadline=generation_deadline
                     )
+
+                    if generation_timed_out(generation_deadline):
+                        st.info("Generation reached the performance limit and returned the best layout it could complete. Try Moderate density or fewer large plants if the layout feels sparse.")
 
                     if len(placed_instances) == 0:
                         st.warning("No plants could fit inside the boundary. Try a larger area, lower density, or different plant parameters.")
@@ -1953,6 +1979,7 @@ if generate:
                             plants_generated_count=len(placed_instances)
                         )
 
+                        status.info("Drawing plan view...")
                         st.subheader("Plan View")
 
                         fig, ax = plt.subplots(figsize=(10, 10))
@@ -2057,6 +2084,7 @@ if generate:
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
 
+                        status.info("Building elevation study...")
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
 
@@ -2126,6 +2154,7 @@ if generate:
                             plant = item["plant"]
                             counts[plant["name"]] = counts.get(plant["name"], 0) + 1
 
+                        status.info("Preparing plant schedule...")
                         st.subheader("Plant Schedule")
 
                         schedule = []
@@ -2166,6 +2195,7 @@ if generate:
                             on_click=lambda: increment_export_count(st.session_state.get("user_email"))
                         )
                         log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
+                        status.success("Planting layout generated.")
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
