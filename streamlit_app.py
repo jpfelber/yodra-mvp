@@ -279,6 +279,11 @@ MAX_GROUP_CENTER_ATTEMPTS = 120
 MAX_RANDOM_POINT_ATTEMPTS = 80
 MAX_CONSECUTIVE_GROUP_FAILURES = 80
 
+# Absolute spacing rule: no plant circles may overlap.
+# If the engine cannot hit the requested coverage without overlap, it should
+# generate fewer plants rather than force circles into the plan.
+MIN_CLEARANCE_FEET = 0.75
+
 def generation_timed_out(deadline):
     return deadline is not None and time.monotonic() > deadline
 
@@ -883,21 +888,25 @@ def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
 
 
-def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
+def circles_overlap(x, y, r, placed, spacing_factor=1.0, plant=None, clearance_units=0):
+    """Return True when the proposed circle conflicts with any existing circle.
+
+    This is intentionally strict. Earlier versions allowed canopy/underplanting
+    exceptions or spacing factors below 1.0, which could create visible overlaps.
+    For plan clarity, no drawn circles are allowed to overlap. If the requested
+    density cannot be reached, the generator stops cleanly with fewer plants.
+    """
     for p in placed:
-        existing_plant = p["plant"]
-
-        existing_allows_underplanting = existing_plant.get("allows_underplanting", False)
-        current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False)
-
-        if existing_allows_underplanting and not current_allows_underplanting:
-            continue
-
-        if current_allows_underplanting and not existing_allows_underplanting:
-            continue
-
         distance = math.dist((x, y), (p["x"], p["y"]))
-        min_distance = (r + p["radius"]) * spacing_factor
+
+        # Absolute no-overlap threshold.
+        hard_min_distance = r + p["radius"] + clearance_units
+
+        # Optional design spacing threshold. This can be larger than the hard
+        # no-overlap rule, but never smaller.
+        design_min_distance = (r + p["radius"]) * max(spacing_factor, 1.0)
+
+        min_distance = max(hard_min_distance, design_min_distance)
 
         if distance < min_distance:
             return True
@@ -1157,12 +1166,21 @@ def place_plant_group(poly, plant, target_group_count, spacing_factor, existing_
         if not circle_inside(poly, x, y, plant_radius):
             continue
 
-        # Use a plant-specific spacing threshold where available.
+        # Use plant-specific spacing where available, but never allow overlap.
         plant_specific_factor = random.uniform(spacing_min_units, spacing_max_units) / max((plant_radius * 2), 0.01)
-        effective_spacing_factor = max(0.55, min(spacing_factor, plant_specific_factor))
+        effective_spacing_factor = max(1.0, min(spacing_factor, plant_specific_factor))
 
+        clearance_units = MIN_CLEARANCE_FEET / feet_per_canvas_unit
         all_existing = existing_placed + placed_group
-        if circles_overlap(x, y, plant_radius, all_existing, effective_spacing_factor, plant):
+        if circles_overlap(
+            x,
+            y,
+            plant_radius,
+            all_existing,
+            effective_spacing_factor,
+            plant,
+            clearance_units=clearance_units
+        ):
             continue
 
         placed_group.append({
@@ -1215,7 +1233,8 @@ def pack_layer_by_groups(
             plant,
             grouping_scale=grouping_scale,
             spacing_character=spacing_character,
-            composition_style=composition_style
+            composition_style=composition_style,
+            deadline=deadline
         )
 
         target_group_count = random.randint(behavior["group_min"], behavior["group_max"])
@@ -1304,7 +1323,8 @@ def pack_by_role(
             feet_per_canvas_unit=feet_per_canvas_unit,
             grouping_scale=grouping_scale,
             spacing_character=spacing_character,
-            composition_style=composition_style
+            composition_style=composition_style,
+            deadline=deadline
         )
 
         all_placed.extend(placed_layer)
@@ -2081,6 +2101,8 @@ if generate:
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
+                        if actual_coverage < target_coverage * 0.75:
+                            st.warning("YODRA generated a cleaner lower-count layout because the requested density could not be reached without overlapping plant circles.")
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
 
