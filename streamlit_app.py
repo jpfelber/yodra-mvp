@@ -895,7 +895,7 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
     return placed_layer, placed_area
 
 
-def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None):
+def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None, role_zones=None):
     boundary_area = poly.area
 
     if boundary_area <= 0:
@@ -917,16 +917,24 @@ def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_t
             for role in active_roles
         }
 
+    clean_role_zones = valid_role_zones_for_boundary(role_zones or {}, poly)
+
     for role in active_roles:
         role_plants = [p for p in plant_pool if p["role"] == role]
 
         if not role_plants:
             continue
 
+        # Optional role zones: if a user draws a zone for this Role, pack only inside
+        # that clipped zone. If no zone exists for the Role, use the full main boundary.
+        active_poly = clean_role_zones.get(role, poly)
+        if active_poly.is_empty or active_poly.area <= 0:
+            continue
+
         layer_target_area = total_target_area * role_split.get(role, 0)
 
         placed_layer, placed_area = pack_layer(
-            poly=poly,
+            poly=active_poly,
             plants=role_plants,
             target_area=layer_target_area,
             spacing_factor=spacing_factor,
@@ -1000,6 +1008,41 @@ def get_polygon_from_canvas(canvas_json):
         return None
 
     return points
+
+
+def normalize_polygon(points):
+    if points is None or len(points) < 3:
+        return None
+    poly = Polygon(points)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    if poly.is_empty or poly.area <= 0:
+        return None
+    return poly
+
+
+def polygon_points_from_geometry(geom):
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Polygon":
+        return [(float(x), float(y)) for x, y in list(geom.exterior.coords)[:-1]]
+    if geom.geom_type == "MultiPolygon":
+        largest = max(list(geom.geoms), key=lambda g: g.area)
+        return [(float(x), float(y)) for x, y in list(largest.exterior.coords)[:-1]]
+    return []
+
+
+def valid_role_zones_for_boundary(role_zones, main_poly):
+    valid = {}
+    for role, points in (role_zones or {}).items():
+        zone_poly = normalize_polygon(points)
+        if zone_poly is None:
+            continue
+        clipped = zone_poly.intersection(main_poly)
+        if clipped.is_empty or clipped.area <= 0:
+            continue
+        valid[role] = clipped
+    return valid
 
 
 def rectangle_points(canvas_width, canvas_height):
@@ -1113,7 +1156,7 @@ def escape_svg_text(value):
     return html.escape(str(value), quote=True)
 
 
-def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit):
+def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit, role_zones=None):
     """Create a clean vector SVG of the plan geometry.
 
     This avoids relying on Matplotlib's SVG output and gives you true circle/vector objects.
@@ -1123,6 +1166,26 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
     svg.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_width}" height="{canvas_height}" viewBox="0 0 {canvas_width} {canvas_height}">\n')
     svg.write('<rect width="100%" height="100%" fill="white"/>\n')
     svg.write(f'<polygon points="{path_points}" fill="none" stroke="black" stroke-width="2"/>\n')
+
+    for role, zone_points in (role_zones or {}).items():
+        if not zone_points or len(zone_points) < 3:
+            continue
+        zone_path = " ".join([f"{x:.2f},{y:.2f}" for x, y in zone_points])
+        first_x, first_y = zone_points[0]
+        svg.write(f'<polygon points="{zone_path}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4 4" opacity="0.45"/>\n')
+        svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(role)} zone</text>\n')
+
+    for role, zone_points in (role_zones or {}).items():
+        if not zone_points or len(zone_points) < 3:
+            continue
+        closed_zone = zone_points + [zone_points[0]]
+        layer_name = f"ROLE_ZONE_{role.upper().replace(' ', '_')}"
+        for i in range(len(closed_zone) - 1):
+            x1, y1 = closed_zone[i]
+            x2, y2 = closed_zone[i + 1]
+            dxf.write("0\nLINE\n8\n" + layer_name + "\n")
+            dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
+            dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
 
     for item in placed_instances:
         plant = item["plant"]
@@ -1136,7 +1199,7 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
     return BytesIO(svg.getvalue().encode("utf-8"))
 
 
-def plan_to_dxf(points, placed_instances, feet_per_canvas_unit):
+def plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones=None):
     """Export a simple ASCII DXF in real feet.
 
     AutoCAD, Rhino, Vectorworks, and many CAD tools can open DXF. This is the practical
@@ -1385,6 +1448,59 @@ with left:
                 if len(st.session_state[trace_key]) < 3:
                     st.info("Add at least 3 points before generating the planting layout.")
 
+# -----------------------------
+# Optional role zones
+# -----------------------------
+
+if "role_zones" not in st.session_state:
+    st.session_state.role_zones = {}
+
+with left:
+    st.subheader("2. Optional Role Zones")
+    st.caption("Optional: draw smaller zones inside the main boundary to control where specific plant Roles can be placed. If no zone is drawn for a Role, that Role uses the full planting boundary.")
+
+    enable_role_zones = st.checkbox("Use optional role zones", value=False)
+
+    if enable_role_zones:
+        selected_zone_role = st.selectbox("Select Role zone to draw", ROLE_ORDER, key="selected_zone_role")
+        st.caption(f"Draw one polygon for the {selected_zone_role} zone, then click Save / Update Role Zone.")
+
+        role_zone_canvas = st_canvas(
+            fill_color="rgba(0, 0, 0, 0)",
+            stroke_width=2,
+            stroke_color="#555555",
+            background_color="#fbfbf7",
+            height=canvas_height,
+            width=canvas_width,
+            drawing_mode="polygon",
+            key=f"role_zone_canvas_{selected_zone_role}",
+        )
+
+        z1, z2 = st.columns(2)
+        with z1:
+            if st.button("Save / Update Role Zone"):
+                zone_points = get_polygon_from_canvas(role_zone_canvas.json_data if role_zone_canvas is not None else None)
+                if zone_points is None:
+                    st.warning("Draw a closed polygon before saving this role zone.")
+                else:
+                    st.session_state.role_zones[selected_zone_role] = zone_points
+                    st.success(f"Saved {selected_zone_role} zone.")
+        with z2:
+            if st.button("Remove This Role Zone"):
+                st.session_state.role_zones.pop(selected_zone_role, None)
+                st.success(f"Removed {selected_zone_role} zone.")
+
+        if st.session_state.role_zones:
+            saved_zone_labels = ", ".join(sorted(st.session_state.role_zones.keys()))
+            st.info(f"Saved role zones: {saved_zone_labels}")
+            if st.button("Clear All Role Zones"):
+                st.session_state.role_zones = {}
+                st.success("All role zones cleared.")
+    else:
+        st.session_state.active_role_zones_enabled = False
+
+active_role_zones = st.session_state.role_zones if enable_role_zones else {}
+
 with right:
     st.subheader("Request a Plant")
     requested_plant = st.text_input("Plant you want added")
@@ -1403,7 +1519,7 @@ with right:
             )
             st.success("Plant request submitted.")
 
-    st.subheader("2. Selected Plant Palette")
+    st.subheader("3. Selected Plant Palette")
 
     if len(selected_plants) == 0:
         st.warning("No plants match these parameters yet. Try adjusting USDA hardiness, sun exposure, or water needs.")
@@ -1490,12 +1606,9 @@ if generate:
                 st.warning("No plants are available for the selected site parameters.")
 
             else:
-                poly = Polygon(points)
+                poly = normalize_polygon(points)
 
-                if not poly.is_valid:
-                    poly = poly.buffer(0)
-
-                if poly.area <= 0:
+                if poly is None:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
@@ -1505,7 +1618,8 @@ if generate:
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        role_split=role_split
+                        role_split=role_split,
+                        role_zones=active_role_zones
                     )
 
                     if len(placed_instances) == 0:
@@ -1534,6 +1648,14 @@ if generate:
 
                         xs, ys = zip(*(points + [points[0]]))
                         ax.plot(xs, ys, linewidth=2, zorder=3)
+
+                        clean_role_zones = valid_role_zones_for_boundary(active_role_zones, poly)
+                        for role, zone_geom in clean_role_zones.items():
+                            zone_points = polygon_points_from_geometry(zone_geom)
+                            if len(zone_points) >= 3:
+                                zx, zy = zip(*(zone_points + [zone_points[0]]))
+                                ax.plot(zx, zy, linewidth=1.2, linestyle="--", alpha=0.65, zorder=3)
+                                ax.text(zone_points[0][0], zone_points[0][1], f"{role} zone", fontsize=8, alpha=0.7, zorder=6)
 
                         draw_grid(ax, canvas_width, canvas_height, grid_spacing_units)
 
@@ -1598,8 +1720,8 @@ if generate:
                         st.pyplot(fig)
 
                         plan_png = fig_to_png_bytes(fig)
-                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit)
-                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit)
+                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit, role_zones={role: polygon_points_from_geometry(geom) for role, geom in clean_role_zones.items()})
+                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones={role: polygon_points_from_geometry(geom) for role, geom in clean_role_zones.items()})
 
                         d1, d2, d3 = st.columns(3)
                         with d1:
