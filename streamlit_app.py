@@ -834,6 +834,63 @@ PLANTS = [
 
 
 
+# -----------------------------
+# MVP composition metadata from Google Sheet
+# -----------------------------
+# These columns let YODRA compose before it packs circles:
+# Design Tier: 1 focal/canopy, 2 structure, 3 accent, 4 matrix.
+# Dominance %: relative visual/area dominance inside a compatible palette.
+# Community Group: plants that should read as the same ecological/design community.
+# Companion Plants: plant codes that should be favored nearby.
+COMPOSITION_DATABASE = {
+    "CP": {"group_min": 8, "group_max": 20, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 70, "community_group": "Coastal Meadow", "companion_plants": ["FC", "ID", "EL"]},
+    "EL": {"group_min": 3, "group_max": 7, "spacing_min_ft": 2, "spacing_max_ft": 4, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 15, "community_group": "Coastal Meadow", "companion_plants": ["CP", "FC", "ID"]},
+    "FC": {"group_min": 5, "group_max": 12, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 50, "community_group": "Coastal Meadow", "companion_plants": ["CP", "EL", "ID"]},
+    "SS": {"group_min": 3, "group_max": 5, "spacing_min_ft": 3, "spacing_max_ft": 5, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 10, "community_group": "Coastal Woodland Edge", "companion_plants": ["ID", "AHM", "CP"]},
+    "ID": {"group_min": 5, "group_max": 9, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 3, "dominance_percent": 15, "community_group": "Coastal Meadow", "companion_plants": ["CP", "FC", "EL"]},
+    "AM": {"group_min": 1, "group_max": 1, "spacing_min_ft": 18, "spacing_max_ft": 25, "placement_pattern": "Specimen", "edge_preference": "Back", "design_tier": 1, "dominance_percent": 5, "community_group": "Coastal Woodland", "companion_plants": ["AHM", "SS"]},
+    "AHM": {"group_min": 1, "group_max": 3, "spacing_min_ft": 8, "spacing_max_ft": 12, "placement_pattern": "Anchor Mass", "edge_preference": "Edge", "design_tier": 2, "dominance_percent": 15, "community_group": "Coastal Woodland", "companion_plants": ["AM", "SS", "ID"]},
+
+    "MR": {"group_min": 5, "group_max": 12, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 60, "community_group": "Inland Grassland", "companion_plants": ["SP", "EF", "EC"]},
+    "SP": {"group_min": 10, "group_max": 25, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 70, "community_group": "Inland Grassland", "companion_plants": ["MR", "EF", "EC"]},
+    "JP": {"group_min": 5, "group_max": 10, "spacing_min_ft": 2, "spacing_max_ft": 4, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 35, "community_group": "Inland Riparian", "companion_plants": ["MR", "EF"]},
+    "EF": {"group_min": 3, "group_max": 5, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 20, "community_group": "Inland Grassland", "companion_plants": ["SP", "MR", "EC"]},
+    "EC": {"group_min": 5, "group_max": 10, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 10, "community_group": "Inland Grassland", "companion_plants": ["EF", "SP"]},
+    "AC": {"group_min": 4, "group_max": 8, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 2, "dominance_percent": 25, "community_group": "Dry Chaparral", "companion_plants": ["EF", "EC"]},
+    "QC": {"group_min": 1, "group_max": 1, "spacing_min_ft": 25, "spacing_max_ft": 35, "placement_pattern": "Specimen", "edge_preference": "Back", "design_tier": 1, "dominance_percent": 5, "community_group": "Oak Woodland", "companion_plants": ["AC", "EF"]},
+
+    "CT": {"group_min": 8, "group_max": 20, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any", "design_tier": 4, "dominance_percent": 70, "community_group": "Oak Woodland Floor", "companion_plants": ["PM", "HM"]},
+    "PM": {"group_min": 5, "group_max": 12, "spacing_min_ft": 3, "spacing_max_ft": 5, "placement_pattern": "Drift", "edge_preference": "Interior", "design_tier": 4, "dominance_percent": 50, "community_group": "Oak Woodland Floor", "companion_plants": ["CT", "HM", "WF"]},
+    "HM": {"group_min": 5, "group_max": 9, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 15, "community_group": "Woodland Edge", "companion_plants": ["PM", "CT"]},
+    "RS": {"group_min": 3, "group_max": 5, "spacing_min_ft": 5, "spacing_max_ft": 7, "placement_pattern": "Accent Pocket", "edge_preference": "Interior", "design_tier": 3, "dominance_percent": 15, "community_group": "Woodland Edge", "companion_plants": ["PM", "HM"]},
+    "WF": {"group_min": 3, "group_max": 7, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Interior", "design_tier": 4, "dominance_percent": 40, "community_group": "Riparian Woodland", "companion_plants": ["PM", "CT"]},
+    "ACI": {"group_min": 1, "group_max": 1, "spacing_min_ft": 12, "spacing_max_ft": 20, "placement_pattern": "Specimen", "edge_preference": "Back", "design_tier": 1, "dominance_percent": 5, "community_group": "Woodland Canopy", "companion_plants": ["PM", "HM"]},
+    "HA": {"group_min": 1, "group_max": 3, "spacing_min_ft": 10, "spacing_max_ft": 15, "placement_pattern": "Anchor Mass", "edge_preference": "Edge", "design_tier": 2, "dominance_percent": 20, "community_group": "Woodland Edge", "companion_plants": ["ACI", "RS"]},
+}
+
+
+def apply_composition_database(plants):
+    enriched = []
+    for plant in plants:
+        p = plant.copy()
+        meta = COMPOSITION_DATABASE.get(p.get("code"), {})
+        p.update(meta)
+        p.setdefault("group_min", 1)
+        p.setdefault("group_max", 3)
+        p.setdefault("spacing_min_ft", p.get("spread_ft", 2))
+        p.setdefault("spacing_max_ft", max(p.get("spread_ft", 2), p.get("spacing_min_ft", 2)))
+        p.setdefault("placement_pattern", "Drift")
+        p.setdefault("edge_preference", "Any")
+        p.setdefault("design_tier", {"Canopy": 1, "Structure": 2, "Accent": 3, "Matrix": 4}.get(p.get("role"), 4))
+        p.setdefault("dominance_percent", max(5, int(p.get("weight", 1)) * 10))
+        p.setdefault("community_group", ", ".join(p.get("climate", [])))
+        p.setdefault("companion_plants", [])
+        enriched.append(p)
+    return enriched
+
+PLANTS = apply_composition_database(PLANTS)
+
+
 ROLE_ORDER = sorted({plant["role"] for plant in PLANTS})
 
 DEFAULT_ROLE_COVERAGE_PERCENTAGES = {
@@ -922,7 +979,14 @@ def weighted_choice(plants):
     if not plants:
         return None
 
-    weights = [p.get("weight", 1) for p in plants]
+    # Dominance % is the main MVP composition weight.
+    # Design Tier then slightly reinforces hierarchy without overpowering dominance.
+    tier_multiplier = {1: 0.7, 2: 1.0, 3: 0.85, 4: 1.25}
+    weights = []
+    for p in plants:
+        dominance = float(p.get("dominance_percent", p.get("weight", 1) * 10) or 1)
+        tier = int(p.get("design_tier", 4) or 4)
+        weights.append(max(0.1, dominance * tier_multiplier.get(tier, 1.0)))
     return random.choices(plants, weights=weights, k=1)[0]
 
 
@@ -1024,6 +1088,46 @@ def random_point_inside(poly, radius=0, max_attempts=1200):
             return x, y
     return None
 
+def point_with_preference(poly, radius=0, preference="Any", max_attempts=1600):
+    """Return a valid point honoring broad design intent from the Google Sheet."""
+    preference = (preference or "Any").strip().lower()
+    minx, miny, maxx, maxy = poly.bounds
+    height = max(1, maxy - miny)
+    width = max(1, maxx - minx)
+    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
+    centroid = poly.centroid
+
+    for _ in range(max_attempts):
+        x = random.uniform(minx + radius, maxx - radius)
+        y = random.uniform(miny + radius, maxy - radius)
+        if not circle_inside(poly, x, y, radius):
+            continue
+
+        point = Point(x, y)
+        dist_to_edge = point.distance(poly.boundary)
+
+        if preference == "back" and y > miny + height * 0.42:
+            continue
+        if preference == "edge" and dist_to_edge > diag * 0.16:
+            continue
+        if preference == "interior" and dist_to_edge < diag * 0.10:
+            continue
+
+        return x, y
+
+    return random_point_inside(poly, radius)
+
+
+def get_species_target_area(target_area, plants):
+    """Split a layer target by dominance percent instead of treating species equally."""
+    total = sum(max(1, float(p.get("dominance_percent", 10) or 10)) for p in plants) or 1
+    return {p["code"]: target_area * (max(1, float(p.get("dominance_percent", 10) or 10)) / total) for p in plants}
+
+
+def grouped_species_order(plants):
+    """Order plants by design tier, then dominance. Lower tier number places earlier."""
+    return sorted(plants, key=lambda p: (int(p.get("design_tier", 4) or 4), -float(p.get("dominance_percent", 10) or 10)))
+
 
 def make_composition_centers(poly, count, edge_preference=False):
     """Create loose visual anchor points for clusters/masses."""
@@ -1104,49 +1208,114 @@ def relaxed_overlap(x, y, r, placed, spacing_factor, plant=None):
 
 
 def place_from_candidates(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total, centers=None, cluster_spread=40, matrix_bias=0.0):
-    """Place a role/layer with optional composition centers."""
+    """Place a role/layer using Google Sheet composition metadata.
+
+    This is the key MVP upgrade:
+    - Species targets are split by Dominance %, not random equality.
+    - Design Tier determines order.
+    - Group Min/Max creates masses, drifts, and pockets.
+    - Edge Preference steers back/edge/interior plants.
+    - Companion Plants are encouraged by reusing nearby centers when possible.
+    """
     if not plants:
         return [], 0
 
     placed_layer = []
     placed_area = 0
+    max_attempts = 22000
     attempts = 0
-    max_attempts = 18000
+    species_targets = get_species_target_area(target_area, plants)
+    code_to_recent_centers = {}
 
-    while (
-        placed_area < target_area
-        and attempts < max_attempts
-        and len(existing_placed) + len(placed_layer) < max_plants_total
-    ):
-        attempts += 1
-        plant = weighted_choice(plants)
-        if plant is None:
+    minx, miny, maxx, maxy = poly.bounds
+    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
+
+    for plant in grouped_species_order(plants):
+        if len(existing_placed) + len(placed_layer) >= max_plants_total:
             break
 
+        species_target = species_targets.get(plant["code"], target_area / max(1, len(plants)))
+        species_area = 0
         r = plant["radius"]
+        pattern = plant.get("placement_pattern", "Drift")
+        edge_pref = plant.get("edge_preference", "Any")
+        group_min = int(plant.get("group_min", 1) or 1)
+        group_max = max(group_min, int(plant.get("group_max", group_min) or group_min))
 
-        use_center = centers and (random.random() < max(0.0, min(1.0, 1.0 - matrix_bias)))
-        if use_center:
-            center = random.choice(centers)
-            pt = point_near_center(poly, center, r, cluster_spread)
+        if pattern in ["Specimen"] or int(plant.get("design_tier", 4)) == 1:
+            group_min = group_max = 1
+        elif pattern in ["Anchor Mass"]:
+            group_max = min(group_max, 3)
+
+        # Convert sheet spacing values into a local spacing adjustment.
+        desired_spacing_ft = (float(plant.get("spacing_min_ft", plant.get("spread_ft", 2))) + float(plant.get("spacing_max_ft", plant.get("spread_ft", 2)))) / 2
+        spread_ft = max(0.5, float(plant.get("spread_ft", desired_spacing_ft) or desired_spacing_ft))
+        local_spacing_factor = max(0.92, min(1.45, spacing_factor * desired_spacing_ft / spread_ft))
+
+        # Dominant matrix species should read as fields, not single circles.
+        if int(plant.get("design_tier", 4)) == 4:
+            local_cluster_spread = max(cluster_spread, diag * 0.16)
+        elif pattern == "Accent Pocket":
+            local_cluster_spread = max(r * 3.5, diag * 0.075)
+        elif pattern == "Anchor Mass":
+            local_cluster_spread = max(r * 2.2, diag * 0.09)
         else:
-            pt = random_point_inside(poly, r)
+            local_cluster_spread = max(r * 3.0, cluster_spread)
 
-        if pt is None:
-            continue
+        while species_area < species_target and attempts < max_attempts and len(existing_placed) + len(placed_layer) < max_plants_total:
+            attempts += 1
 
-        x, y = pt
-        all_existing = existing_placed + placed_layer
-        if relaxed_overlap(x, y, r, all_existing, spacing_factor, plant):
-            continue
+            companion_centers = []
+            for code in plant.get("companion_plants", []):
+                companion_centers.extend(code_to_recent_centers.get(code, []))
 
-        placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
-        placed_area += math.pi * (r ** 2)
+            if companion_centers and random.random() < 0.55:
+                center = random.choice(companion_centers)
+            elif centers and random.random() < max(0.20, min(0.85, 1.0 - matrix_bias)):
+                center = random.choice(centers)
+            else:
+                center = point_with_preference(poly, r, edge_pref)
+
+            if center is None:
+                continue
+
+            group_count = random.randint(group_min, group_max)
+            if species_area + math.pi * (r ** 2) * group_count > species_target * 1.35:
+                group_count = max(1, int((species_target - species_area) / max(math.pi * (r ** 2), 1)))
+
+            group_placed = 0
+            for _ in range(max(1, group_count)):
+                if len(existing_placed) + len(placed_layer) >= max_plants_total:
+                    break
+
+                if pattern == "Specimen":
+                    pt = center
+                else:
+                    pt = point_near_center(poly, center, r, local_cluster_spread)
+
+                if pt is None:
+                    continue
+
+                x, y = pt
+                all_existing = existing_placed + placed_layer
+                if relaxed_overlap(x, y, r, all_existing, local_spacing_factor, plant):
+                    continue
+
+                placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
+                species_area += math.pi * (r ** 2)
+                placed_area += math.pi * (r ** 2)
+                group_placed += 1
+                code_to_recent_centers.setdefault(plant["code"], []).append((x, y))
+
+            # If nothing in the group could place, try another center.
+            if group_placed == 0:
+                continue
 
     return placed_layer, placed_area
 
-
 def composition_role_order(active_roles):
+    # Professional planting hierarchy: focal/anchor first, structure second,
+    # matrix field third, accents last so they land as moments, not noise.
     preferred = ["Canopy", "Structure", "Matrix", "Accent"]
     ordered = [role for role in preferred if role in active_roles]
     ordered.extend([role for role in active_roles if role not in ordered])
@@ -2088,7 +2257,17 @@ if generate:
                                 "Sun": ", ".join(plant["sun"]),
                                 "Water": ", ".join(plant["water"]),
                                 "Seasonality": plant["seasonality"],
-                                "Allows Underplanting": plant.get("allows_underplanting", False)
+                                "Allows Underplanting": plant.get("allows_underplanting", False),
+                                "Design Tier": plant.get("design_tier"),
+                                "Dominance %": plant.get("dominance_percent"),
+                                "Community Group": plant.get("community_group"),
+                                "Companion Plants": ", ".join(plant.get("companion_plants", [])),
+                                "Placement Pattern": plant.get("placement_pattern"),
+                                "Edge Preference": plant.get("edge_preference"),
+                                "Group Min": plant.get("group_min"),
+                                "Group Max": plant.get("group_max"),
+                                "Spacing Min Ft": plant.get("spacing_min_ft"),
+                                "Spacing Max Ft": plant.get("spacing_max_ft")
                             })
 
                         schedule_df = pd.DataFrame(schedule)
