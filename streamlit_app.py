@@ -173,7 +173,8 @@ from io import BytesIO, StringIO
 
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, Point, box
+from shapely import affinity
 from streamlit_drawable_canvas import st_canvas
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
@@ -265,6 +266,57 @@ MAX_PLANTS_BY_DENSITY = {
     "Dense": 350,
     "Very Dense": 500
 }
+
+LAYOUT_SCHEMES = [
+    "Role Mix",
+    "Drifts",
+    "Concentric",
+    "Radial",
+    "Naturalistic Communities",
+]
+
+ROLE_ZONE_PRIORITY = ["Canopy", "Structure", "Matrix", "Accent"]
+
+ROLE_SCHEME_WEIGHTS = {
+    "Role Mix": {
+        "Canopy": 0.12,
+        "Structure": 0.22,
+        "Matrix": 0.44,
+        "Accent": 0.22,
+    },
+    "Drifts": {
+        "Canopy": 0.08,
+        "Structure": 0.18,
+        "Matrix": 0.52,
+        "Accent": 0.22,
+    },
+    "Concentric": {
+        "Canopy": 0.10,
+        "Structure": 0.28,
+        "Matrix": 0.42,
+        "Accent": 0.20,
+    },
+    "Radial": {
+        "Canopy": 0.10,
+        "Structure": 0.24,
+        "Matrix": 0.42,
+        "Accent": 0.24,
+    },
+    "Naturalistic Communities": {
+        "Canopy": 0.10,
+        "Structure": 0.24,
+        "Matrix": 0.46,
+        "Accent": 0.20,
+    },
+}
+
+ROLE_ZONE_LABELS = {
+    "Canopy": "Canopy / Anchor",
+    "Structure": "Structure",
+    "Matrix": "Matrix",
+    "Accent": "Accent / Seasonal",
+}
+
 
 # Placeholder used only while the plant database is being defined.
 # Runtime radii are recalculated after the active bed scale is known.
@@ -1082,6 +1134,376 @@ def valid_role_zones_for_boundary(role_zones, main_poly):
     return valid
 
 
+
+def ordered_active_roles(plant_pool):
+    roles_in_pool = {p["role"] for p in plant_pool}
+    ordered = [role for role in ROLE_ZONE_PRIORITY if role in roles_in_pool]
+    ordered.extend(sorted(role for role in roles_in_pool if role not in ordered))
+    return ordered
+
+
+def normalized_role_weights(active_roles, layout_scheme, sidebar_role_split=None):
+    """Return role weights for zone generation and per-zone coverage.
+
+    The sidebar sliders remain honored. The layout scheme simply changes the
+    default composition logic so drifts, rings, radial wedges, and communities
+    feel different from one another.
+    """
+    if not active_roles:
+        return {}
+
+    scheme_weights = ROLE_SCHEME_WEIGHTS.get(layout_scheme, ROLE_SCHEME_WEIGHTS["Role Mix"])
+
+    weights = {}
+    for role in active_roles:
+        base = scheme_weights.get(role, 0.18)
+        slider_modifier = 1.0
+        if sidebar_role_split is not None:
+            slider_modifier = max(0.05, sidebar_role_split.get(role, 0.0) * len(active_roles))
+        weights[role] = max(0.01, base * slider_modifier)
+
+    total = sum(weights.values()) or 1
+    return {role: value / total for role, value in weights.items()}
+
+
+def choose_role_for_zone(active_roles, role_weights, zone_index):
+    if not active_roles:
+        return None
+
+    # Keep the composition readable: Matrix appears often, Structure anchors,
+    # Accent punctuates. This avoids every zone becoming a pure random choice.
+    preferred_cycle = ["Matrix", "Accent", "Matrix", "Structure", "Matrix", "Accent", "Canopy"]
+    available_cycle = [role for role in preferred_cycle if role in active_roles]
+    if available_cycle:
+        return available_cycle[zone_index % len(available_cycle)]
+
+    return random.choices(active_roles, weights=[role_weights.get(role, 1) for role in active_roles], k=1)[0]
+
+
+def compact_zone_polygon(zone_poly, shrink_ratio=0.02):
+    """Slightly shrink zones so plants do not sit directly on internal pocket edges."""
+    if zone_poly is None or zone_poly.is_empty:
+        return None
+    minx, miny, maxx, maxy = zone_poly.bounds
+    shrink = max(maxx - minx, maxy - miny) * shrink_ratio
+    if shrink <= 0:
+        return zone_poly
+    shrunk = zone_poly.buffer(-shrink)
+    if shrunk.is_empty or shrunk.area <= 0:
+        return zone_poly
+    if shrunk.geom_type == "MultiPolygon":
+        shrunk = max(list(shrunk.geoms), key=lambda g: g.area)
+    return shrunk
+
+
+def add_zone(zones, main_poly, candidate_poly, role, label):
+    if candidate_poly is None or candidate_poly.is_empty:
+        return zones
+
+    clipped = candidate_poly.intersection(main_poly)
+    if clipped.is_empty or clipped.area <= 0:
+        return zones
+
+    if clipped.geom_type == "MultiPolygon":
+        for geom in sorted(list(clipped.geoms), key=lambda g: g.area, reverse=True):
+            if geom.area > main_poly.area * 0.015:
+                zones.append({
+                    "role": role,
+                    "label": label,
+                    "poly": compact_zone_polygon(geom),
+                    "display_poly": geom,
+                })
+    elif clipped.area > main_poly.area * 0.015:
+        zones.append({
+            "role": role,
+            "label": label,
+            "poly": compact_zone_polygon(clipped),
+            "display_poly": clipped,
+        })
+
+    return zones
+
+
+def generate_drift_zones(main_poly, active_roles, role_weights):
+    minx, miny, maxx, maxy = main_poly.bounds
+    width = maxx - minx
+    height = maxy - miny
+    zones = []
+
+    if width <= 0 or height <= 0:
+        return zones
+
+    band_count = max(4, min(7, len(active_roles) + 3))
+    band_width = width / band_count
+    angle = random.choice([-18, -12, 12, 18])
+
+    for i in range(band_count):
+        role = choose_role_for_zone(active_roles, role_weights, i)
+        x0 = minx - width * 0.20 + i * band_width
+        x1 = x0 + band_width * random.uniform(1.15, 1.75)
+        raw = box(x0, miny - height * 0.50, x1, maxy + height * 0.50)
+
+        # Rotate the bands to create actual drift movement instead of a striped grid.
+        rotated = affinity.rotate(raw, angle + random.uniform(-5, 5), origin=main_poly.centroid)
+        label = f"{ROLE_ZONE_LABELS.get(role, role)} Drift"
+        zones = add_zone(zones, main_poly, rotated, role, label)
+
+    return zones
+
+
+def generate_concentric_zones(main_poly, active_roles, role_weights):
+    minx, miny, maxx, maxy = main_poly.bounds
+    shortest = min(maxx - minx, maxy - miny)
+    zones = []
+
+    if shortest <= 0:
+        return zones
+
+    ring_count = max(3, min(5, len(active_roles) + 1))
+    step = shortest / (ring_count * 2.35)
+    previous = main_poly
+
+    # Outside-to-inside ordering: Matrix/edge outside, Structure/Canopy toward center.
+    role_order = [role for role in ["Matrix", "Accent", "Structure", "Canopy"] if role in active_roles]
+    if not role_order:
+        role_order = active_roles
+
+    for i in range(ring_count):
+        role = role_order[min(i, len(role_order) - 1)]
+        inner = main_poly.buffer(-step * (i + 1))
+        if inner.is_empty:
+            zone = previous
+        else:
+            zone = previous.difference(inner)
+        label = f"{ROLE_ZONE_LABELS.get(role, role)} Ring"
+        zones = add_zone(zones, main_poly, zone, role, label)
+        if inner.is_empty:
+            break
+        previous = inner
+
+    if previous is not None and not previous.is_empty and previous.area > main_poly.area * 0.03:
+        center_role = "Canopy" if "Canopy" in active_roles else ("Structure" if "Structure" in active_roles else active_roles[0])
+        zones = add_zone(zones, main_poly, previous, center_role, f"{ROLE_ZONE_LABELS.get(center_role, center_role)} Center")
+
+    return zones
+
+
+def generate_radial_zones(main_poly, active_roles, role_weights):
+    minx, miny, maxx, maxy = main_poly.bounds
+    centroid = main_poly.centroid
+    cx, cy = centroid.x, centroid.y
+    radius = max(maxx - minx, maxy - miny) * 1.50
+    zones = []
+
+    wedge_count = max(5, min(8, len(active_roles) + 4))
+    start_angle = random.uniform(0, 360)
+
+    for i in range(wedge_count):
+        a1 = math.radians(start_angle + (360 / wedge_count) * i)
+        a2 = math.radians(start_angle + (360 / wedge_count) * (i + 1))
+        p1 = (cx + math.cos(a1) * radius, cy + math.sin(a1) * radius)
+        p2 = (cx + math.cos(a2) * radius, cy + math.sin(a2) * radius)
+        wedge = Polygon([(cx, cy), p1, p2])
+        role = choose_role_for_zone(active_roles, role_weights, i)
+        label = f"{ROLE_ZONE_LABELS.get(role, role)} Wedge"
+        zones = add_zone(zones, main_poly, wedge, role, label)
+
+    return zones
+
+
+def generate_naturalistic_zones(main_poly, active_roles, role_weights):
+    minx, miny, maxx, maxy = main_poly.bounds
+    width = maxx - minx
+    height = maxy - miny
+    zones = []
+    used = Polygon()
+
+    if width <= 0 or height <= 0:
+        return zones
+
+    zone_count = max(5, min(8, len(active_roles) + 4))
+    attempts = 0
+    i = 0
+
+    while i < zone_count and attempts < zone_count * 20:
+        attempts += 1
+
+        x = random.uniform(minx, maxx)
+        y = random.uniform(miny, maxy)
+        if not main_poly.contains(Point(x, y)):
+            continue
+
+        role = choose_role_for_zone(active_roles, role_weights, i)
+        base_radius = random.uniform(min(width, height) * 0.16, min(width, height) * 0.34)
+        blob = Point(x, y).buffer(base_radius, resolution=18)
+        blob = affinity.scale(
+            blob,
+            xfact=random.uniform(1.1, 2.2),
+            yfact=random.uniform(0.65, 1.25),
+            origin=(x, y)
+        )
+        blob = affinity.rotate(blob, random.uniform(0, 180), origin=(x, y))
+        blob = blob.difference(used)
+
+        if blob.is_empty or blob.area < main_poly.area * 0.025:
+            continue
+
+        label = f"{ROLE_ZONE_LABELS.get(role, role)} Community"
+        before_count = len(zones)
+        zones = add_zone(zones, main_poly, blob, role, label)
+        if len(zones) > before_count:
+            used = used.union(blob.intersection(main_poly))
+            i += 1
+
+    remainder = main_poly.difference(used)
+    if not remainder.is_empty and remainder.area > main_poly.area * 0.04:
+        matrix_role = "Matrix" if "Matrix" in active_roles else active_roles[0]
+        zones = add_zone(zones, main_poly, remainder, matrix_role, f"{ROLE_ZONE_LABELS.get(matrix_role, matrix_role)} Connector")
+
+    return zones
+
+
+def generate_layout_zones(main_poly, plant_pool, layout_scheme, role_split=None):
+    active_roles = ordered_active_roles(plant_pool)
+    role_weights = normalized_role_weights(active_roles, layout_scheme, role_split)
+
+    if not active_roles:
+        return []
+
+    if layout_scheme == "Drifts":
+        zones = generate_drift_zones(main_poly, active_roles, role_weights)
+    elif layout_scheme == "Concentric":
+        zones = generate_concentric_zones(main_poly, active_roles, role_weights)
+    elif layout_scheme == "Radial":
+        zones = generate_radial_zones(main_poly, active_roles, role_weights)
+    elif layout_scheme == "Naturalistic Communities":
+        zones = generate_naturalistic_zones(main_poly, active_roles, role_weights)
+    else:
+        zones = []
+
+    # Fallback: role-mix uses the full boundary without internal zones.
+    if not zones:
+        zones = [{
+            "role": None,
+            "label": "Full Boundary",
+            "poly": main_poly,
+            "display_poly": main_poly,
+        }]
+
+    return zones
+
+
+def pack_by_layout_scheme(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, layout_scheme, role_split=None):
+    """Pack plants inside generated pockets/communities instead of one global scatter."""
+    boundary_area = poly.area
+    if boundary_area <= 0:
+        return [], 0, []
+
+    zones = generate_layout_zones(poly, plant_pool, layout_scheme, role_split)
+    placed_all = []
+    total_placed_area = 0
+
+    active_roles = ordered_active_roles(plant_pool)
+    scheme_role_weights = normalized_role_weights(active_roles, layout_scheme, role_split)
+
+    for zone in sorted(zones, key=lambda z: z["poly"].area, reverse=True):
+        if len(placed_all) >= max_plants_total:
+            break
+
+        zone_poly = zone["poly"]
+        zone_role = zone.get("role")
+
+        if zone_poly is None or zone_poly.is_empty or zone_poly.area <= 0:
+            continue
+
+        if zone_role:
+            zone_plants = [p for p in plant_pool if p["role"] == zone_role]
+            if not zone_plants:
+                zone_plants = plant_pool
+        else:
+            zone_plants = plant_pool
+
+        # In pocket modes, the zone area itself is the design container. Role sliders
+        # influence zone sizing/selection, while density controls how full the zone gets.
+        zone_target_area = zone_poly.area * target_coverage
+
+        # Give anchor/structure zones a little more breathing room.
+        zone_spacing = spacing_factor
+        if zone_role in ["Canopy", "Structure"]:
+            zone_spacing = max(spacing_factor, 1.12)
+
+        placed_layer, placed_area = pack_layer(
+            poly=zone_poly,
+            plants=zone_plants,
+            target_area=zone_target_area,
+            spacing_factor=zone_spacing,
+            existing_placed=placed_all,
+            max_plants_total=max_plants_total
+        )
+
+        for item in placed_layer:
+            item["zone_label"] = zone.get("label")
+            item["zone_role"] = zone_role or item["plant"].get("role")
+
+        placed_all.extend(placed_layer)
+        total_placed_area += placed_area
+
+    # If a zoned layout could not fit enough plants, gently backfill with the
+    # original role-mix logic inside the main boundary.
+    if len(placed_all) == 0 and layout_scheme != "Role Mix":
+        fallback_placed, fallback_coverage = pack_by_role(
+            poly=poly,
+            plant_pool=plant_pool,
+            target_coverage=target_coverage,
+            spacing_factor=spacing_factor,
+            max_plants_total=max_plants_total,
+            role_split=role_split
+        )
+        return fallback_placed, fallback_coverage, zones
+
+    return placed_all, total_placed_area / boundary_area, zones
+
+
+def zones_to_points(layout_zones):
+    zone_points = []
+    for zone in layout_zones or []:
+        display_poly = zone.get("display_poly") or zone.get("poly")
+        pts = polygon_points_from_geometry(display_poly)
+        if pts:
+            zone_points.append({
+                "label": zone.get("label", "Zone"),
+                "role": zone.get("role"),
+                "points": pts
+            })
+    return zone_points
+
+
+def draw_layout_zones(ax, layout_zones):
+    for zone in layout_zones or []:
+        display_poly = zone.get("display_poly") or zone.get("poly")
+        pts = polygon_points_from_geometry(display_poly)
+        if not pts:
+            continue
+
+        xs, ys = zip(*(pts + [pts[0]]))
+        ax.plot(xs, ys, linewidth=1, linestyle="--", alpha=0.45, zorder=2)
+
+        try:
+            c = display_poly.representative_point()
+            ax.text(
+                c.x,
+                c.y,
+                zone.get("label", "Zone"),
+                ha="center",
+                va="center",
+                fontsize=7,
+                alpha=0.55,
+                zorder=3
+            )
+        except Exception:
+            pass
+
+
 def rectangle_points(canvas_width, canvas_height):
     return [(0, 0), (canvas_width, 0), (canvas_width, canvas_height), (0, canvas_height)]
 
@@ -1204,25 +1626,15 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
     svg.write('<rect width="100%" height="100%" fill="white"/>\n')
     svg.write(f'<polygon points="{path_points}" fill="none" stroke="black" stroke-width="2"/>\n')
 
-    for role, zone_points in (role_zones or {}).items():
+    for zone in (role_zones or []):
+        zone_points = zone.get("points", [])
+        label = zone.get("label", "Zone")
         if not zone_points or len(zone_points) < 3:
             continue
         zone_path = " ".join([f"{x:.2f},{y:.2f}" for x, y in zone_points])
         first_x, first_y = zone_points[0]
         svg.write(f'<polygon points="{zone_path}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4 4" opacity="0.45"/>\n')
-        svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(role)} zone</text>\n')
-
-    for role, zone_points in (role_zones or {}).items():
-        if not zone_points or len(zone_points) < 3:
-            continue
-        closed_zone = zone_points + [zone_points[0]]
-        layer_name = f"ROLE_ZONE_{role.upper().replace(' ', '_')}"
-        for i in range(len(closed_zone) - 1):
-            x1, y1 = closed_zone[i]
-            x2, y2 = closed_zone[i + 1]
-            dxf.write("0\nLINE\n8\n" + layer_name + "\n")
-            dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
-            dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
+        svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(label)}</text>\n')
 
     for item in placed_instances:
         plant = item["plant"]
@@ -1234,7 +1646,6 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
     svg.write(f'<text x="12" y="{canvas_height - 14}" font-family="Arial" font-size="10">Scale: 1 px = {feet_per_canvas_unit:.3f} ft</text>\n')
     svg.write('</svg>')
     return BytesIO(svg.getvalue().encode("utf-8"))
-
 
 def plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones=None):
     """Export a simple ASCII DXF in real feet.
@@ -1254,6 +1665,20 @@ def plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones=None)
         dxf.write("0\nLINE\n8\nBOUNDARY\n")
         dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
         dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
+
+    for zone in (role_zones or []):
+        zone_points = zone.get("points", [])
+        zone_label = zone.get("label", "ZONE")
+        if not zone_points or len(zone_points) < 3:
+            continue
+        layer_name = f"ZONE_{zone_label.upper().replace(' ', '_').replace('/', '_')[:24]}"
+        closed_zone = zone_points + [zone_points[0]]
+        for i in range(len(closed_zone) - 1):
+            x1, y1 = closed_zone[i]
+            x2, y2 = closed_zone[i + 1]
+            dxf.write("0\nLINE\n8\n" + layer_name + "\n")
+            dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
+            dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
 
     for item in placed_instances:
         plant = item["plant"]
@@ -1343,6 +1768,15 @@ with st.sidebar:
         ["Low", "Moderate-Low", "Low-Moderate", "Moderate"]
     )
 
+    st.header("Planting Layout")
+
+    layout_scheme = st.selectbox(
+        "Planting Layout Scheme",
+        LAYOUT_SCHEMES,
+        index=1,
+        help="Role Mix places plants by role across the full boundary. Drifts, Concentric, Radial, and Naturalistic Communities first create internal planting pockets, then populate those pockets."
+    )
+
     st.header("Density")
 
     density = st.selectbox(
@@ -1372,7 +1806,7 @@ with st.sidebar:
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
     st.header("Role Percentages")
-    st.caption("These sliders use the exact Role values from the plant database.")
+    st.caption("These sliders use existing Role values. They also influence how much area each pocket/community type receives.")
     role_percentages = {}
     for role in ROLE_ORDER:
         role_percentages[role] = st.slider(role, 0, 100, default_role_percentage(role), key=f"role_pct_{role}")
@@ -1600,12 +2034,13 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
-                    placed_instances, actual_coverage = pack_by_role(
+                    placed_instances, actual_coverage, layout_zones = pack_by_layout_scheme(
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
+                        layout_scheme=layout_scheme,
                         role_split=role_split
                     )
 
@@ -1622,7 +2057,8 @@ if generate:
                             climate=climate,
                             sun_exposure=sun,
                             water_needs=water,
-                                        density=density,
+                            design_style=layout_scheme,
+                            density=density,
                             plants_generated_count=len(placed_instances)
                         )
 
@@ -1636,6 +2072,7 @@ if generate:
                         xs, ys = zip(*(points + [points[0]]))
                         ax.plot(xs, ys, linewidth=2, zorder=3)
 
+                        draw_layout_zones(ax, layout_zones)
                         draw_grid(ax, canvas_width, canvas_height, grid_spacing_units)
 
                         for item in placed_instances:
@@ -1699,8 +2136,9 @@ if generate:
                         st.pyplot(fig)
 
                         plan_png = fig_to_png_bytes(fig)
-                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit)
-                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit)
+                        layout_zone_points = zones_to_points(layout_zones)
+                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit, role_zones=layout_zone_points)
+                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones=layout_zone_points)
 
                         d1, d2, d3 = st.columns(3)
                         with d1:
@@ -1725,6 +2163,7 @@ if generate:
                                 mime="application/dxf"
                             )
 
+                        st.caption(f"Planting layout scheme: {layout_scheme}")
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
