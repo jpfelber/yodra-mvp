@@ -1501,7 +1501,7 @@ with right:
                 design_style="Native Plant Layout Engine",
             )
             if ok:
-                st.success("Plant request submitted. It was saved to Supabase events as event_type='plant_requested'.")
+                st.success("Plant request submitted.")
             else:
                 st.error(f"Plant request was not saved: {error_message}")
         else:
