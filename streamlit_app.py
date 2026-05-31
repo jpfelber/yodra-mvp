@@ -807,59 +807,73 @@ PLANTS = [
 
 
 STYLE_FIT_BY_CODE = {
-    "CP": ["Naturalized", "Contemporary", "Meadow"],
-    "EL": ["Naturalized", "Meadow", "Coastal"],
-    "FC": ["Naturalized", "Contemporary", "Meadow"],
-    "SS": ["Naturalized", "Woodland"],
-    "ID": ["Naturalized", "Meadow", "Woodland"],
-    "AM": ["Naturalized", "Woodland", "Contemporary"],
-    "AHM": ["Contemporary", "Naturalized", "Coastal"],
-    "MR": ["Naturalized", "Contemporary", "Meadow"],
-    "SP": ["Naturalized", "Meadow"],
-    "JP": ["Naturalized", "Meadow", "Contemporary"],
-    "EF": ["Naturalized", "Meadow", "Dry"],
-    "EC": ["Naturalized", "Meadow", "Dry"],
-    "AC": ["Naturalized", "Dry", "Meadow"],
-    "QC": ["Naturalized", "Woodland"],
-    "CT": ["Naturalized", "Woodland", "Contemporary"],
-    "PM": ["Woodland", "Naturalized"],
-    "HM": ["Woodland", "Naturalized", "Contemporary"],
-    "RS": ["Woodland", "Naturalized"],
-    "WF": ["Woodland", "Naturalized"],
-    "AV": ["Woodland", "Naturalized", "Contemporary"],
-    "HA": ["Woodland", "Contemporary", "Naturalized"],
+    # Wild / Naturalized is intentionally broad: it allows the engine to mix canopy,
+    # structure, matrix, and accents after USDA/sun/water filtering.
+    "CP": ["Wild / Naturalized", "Contemporary", "Meadow"],
+    "EL": ["Wild / Naturalized", "Meadow", "Perennial Garden", "Dry Garden"],
+    "FC": ["Wild / Naturalized", "Contemporary", "Meadow"],
+    "SS": ["Wild / Naturalized", "Perennial Garden", "Woodland Garden"],
+    "ID": ["Wild / Naturalized", "Meadow", "Perennial Garden", "Woodland Garden"],
+    "AM": ["Wild / Naturalized", "Woodland Garden", "Contemporary"],
+    "AHM": ["Contemporary", "Wild / Naturalized", "Dry Garden"],
+    "MR": ["Wild / Naturalized", "Contemporary", "Meadow"],
+    "SP": ["Wild / Naturalized", "Meadow"],
+    "JP": ["Wild / Naturalized", "Meadow", "Contemporary"],
+    "EF": ["Wild / Naturalized", "Meadow", "Perennial Garden", "Dry Garden"],
+    "EC": ["Wild / Naturalized", "Meadow", "Perennial Garden", "Dry Garden"],
+    "AC": ["Wild / Naturalized", "Dry Garden", "Meadow", "Contemporary"],
+    "QC": ["Wild / Naturalized", "Woodland Garden"],
+    "CT": ["Wild / Naturalized", "Woodland Garden", "Contemporary"],
+    "PM": ["Woodland Garden", "Wild / Naturalized"],
+    "HM": ["Woodland Garden", "Wild / Naturalized", "Perennial Garden", "Contemporary"],
+    "RS": ["Woodland Garden", "Wild / Naturalized"],
+    "WF": ["Woodland Garden", "Wild / Naturalized"],
+    "AV": ["Woodland Garden", "Wild / Naturalized", "Contemporary"],
+    "HA": ["Woodland Garden", "Contemporary", "Wild / Naturalized", "Dry Garden"],
 }
 
 STYLE_LOGIC = {
-    "Naturalized": {
-        "species_limit": 8,
+    "Wild / Naturalized": {
+        "species_limit": 9,
         "spacing_multiplier": 1.00,
-        "description": "Loose, mixed drifts with controlled variation."
+        "description": "Mixed, ecological planting with canopy, structure, grasses, perennials, and accents.",
+        "form_priority": [],
+        "role_boost": {"Matrix": 1.15, "Accent": 1.05, "Structure": 1.0, "Canopy": 0.8},
     },
     "Contemporary": {
         "species_limit": 5,
-        "spacing_multiplier": 1.18,
-        "description": "Fewer species, stronger repeated masses, and more negative space."
+        "spacing_multiplier": 1.20,
+        "description": "Fewer species, stronger repeated masses, cleaner spacing, and more negative space.",
+        "form_priority": ["Grass", "Shrub", "Tree", "Fern", "Perennial"],
+        "role_boost": {"Structure": 1.35, "Matrix": 1.25, "Canopy": 1.0, "Accent": 0.75},
     },
     "Meadow": {
         "species_limit": 6,
         "spacing_multiplier": 0.96,
-        "description": "Matrix-heavy planting with repeated grasses and seasonal accents."
+        "description": "Mostly grasses with limited seasonal accents for a meadow-like field condition.",
+        "form_priority": ["Grass", "Perennial", "Shrub"],
+        "role_boost": {"Matrix": 1.6, "Accent": 1.0, "Structure": 0.45, "Canopy": 0.15},
     },
-    "Woodland": {
+    "Perennial Garden": {
         "species_limit": 7,
-        "spacing_multiplier": 1.06,
-        "description": "Layered canopy, structure, and understory pockets."
-    },
-    "Coastal": {
-        "species_limit": 6,
         "spacing_multiplier": 1.02,
-        "description": "Coastal meadow and bluff-compatible plant groupings."
+        "description": "Flowering and textural perennial emphasis, supported by restrained matrix plants.",
+        "form_priority": ["Perennial", "Grass"],
+        "role_boost": {"Accent": 1.55, "Matrix": 1.0, "Structure": 0.35, "Canopy": 0.0},
     },
-    "Dry": {
-        "species_limit": 6,
+    "Woodland Garden": {
+        "species_limit": 7,
         "spacing_multiplier": 1.08,
-        "description": "Drought-tolerant structure with open spacing."
+        "description": "Shade-tolerant canopy, structure, ferns, sedges, and understory pockets.",
+        "form_priority": ["Tree", "Shrub", "Fern", "Grass", "Perennial"],
+        "role_boost": {"Canopy": 1.25, "Structure": 1.15, "Matrix": 1.25, "Accent": 1.0},
+    },
+    "Dry Garden": {
+        "species_limit": 6,
+        "spacing_multiplier": 1.12,
+        "description": "Low-water grasses, shrubs, and silver-textured plants with open spacing.",
+        "form_priority": ["Shrub", "Grass", "Perennial"],
+        "role_boost": {"Structure": 1.25, "Matrix": 1.15, "Accent": 1.0, "Canopy": 0.35},
     },
 }
 
@@ -919,7 +933,7 @@ def make_runtime_plant_pool(plants, feet_per_canvas_unit):
     for plant in plants:
         p = plant.copy()
         p["radius"] = (p["spread_ft"] / 2) / feet_per_canvas_unit
-        p["style_fit"] = STYLE_FIT_BY_CODE.get(p.get("code"), ["Naturalized"])
+        p["style_fit"] = STYLE_FIT_BY_CODE.get(p.get("code"), ["Wild / Naturalized"])
         runtime_plants.append(p)
     return runtime_plants
 
@@ -1075,11 +1089,16 @@ def hardiness_is_compatible(selected_zones, usda_min, usda_max):
     return any(usda_min <= zone <= usda_max for zone in selected_zones)
 
 
-def filter_plants(plant_database, state, climate, selected_usda_zones, sun, water):
+def filter_plants(plant_database, state, selected_usda_zones, sun, water):
+    """Filter plants by site viability only.
+
+    Community Group and Climate remain plant-database intelligence, but they are no
+    longer exposed as a left-panel user decision. Design Style now handles the
+    creative/composition intent, while USDA, sun, and water handle viability.
+    """
     return [
         plant for plant in plant_database
         if state in plant["state"]
-        and climate in plant["climate"]
         and hardiness_is_compatible(selected_usda_zones, plant["usda_min"], plant["usda_max"])
         and sun_is_compatible(sun, plant["sun"])
         and water_is_compatible(water, plant["water"])
@@ -1087,19 +1106,55 @@ def filter_plants(plant_database, state, climate, selected_usda_zones, sun, wate
 
 
 def filter_plants_by_style(plant_database, design_style):
-    return [
+    """Filter by the selected design language.
+
+    The style selector replaces the old visible California Plant Community filter.
+    Perennial Garden is intentionally strict: it only returns plants with
+    Form = Perennial, so the output behaves like a true perennial palette.
+    """
+    style_filtered = [
         plant for plant in plant_database
         if design_style in plant.get("style_fit", [])
     ]
+
+    if design_style == "Perennial Garden":
+        style_filtered = [p for p in style_filtered if p.get("form") == "Perennial"]
+
+    if design_style == "Meadow":
+        # Meadow should read grass-dominant, but still permits a few seasonal accents.
+        style_filtered = [p for p in style_filtered if p.get("form") in ["Grass", "Perennial", "Shrub"]]
+
+    if design_style == "Dry Garden":
+        style_filtered = [p for p in style_filtered if "Low" in p.get("water", []) or "Low-Moderate" in p.get("water", [])]
+
+    return style_filtered
+
+
+def style_priority_score(plant, design_style):
+    settings = STYLE_LOGIC.get(design_style, STYLE_LOGIC["Wild / Naturalized"])
+    role_boost = settings.get("role_boost", {}).get(plant.get("role"), 1.0)
+    form_priority = settings.get("form_priority", [])
+
+    form_score = 0
+    if form_priority and plant.get("form") in form_priority:
+        # Earlier listed forms receive higher priority.
+        form_score = len(form_priority) - form_priority.index(plant.get("form"))
+
+    # Lower design tier is more important; invert it for scoring.
+    tier_score = 6 - float(plant.get("design_tier", 5))
+    visual_score = float(plant.get("visual_weight", 1))
+    weight_score = float(plant.get("weight", 1))
+
+    return (tier_score * 2.0 + visual_score + weight_score * 0.4 + form_score * 1.5) * role_boost
 
 
 def limit_palette_by_style(plant_database, design_style):
     """Keep the generated palette focused so layouts feel intentional.
 
     Forced-included plants are added after this function, so user intent still wins.
-    Sorting favors lower design tiers first, then higher visual weight, then database weight.
+    Sorting favors the selected design style first, then design hierarchy.
     """
-    settings = STYLE_LOGIC.get(design_style, STYLE_LOGIC["Naturalized"])
+    settings = STYLE_LOGIC.get(design_style, STYLE_LOGIC["Wild / Naturalized"])
     species_limit = settings.get("species_limit", 8)
 
     if len(plant_database) <= species_limit:
@@ -1108,17 +1163,30 @@ def limit_palette_by_style(plant_database, design_style):
     sorted_plants = sorted(
         plant_database,
         key=lambda p: (
+            -style_priority_score(p, design_style),
             p.get("design_tier", 5),
-            -p.get("visual_weight", 1),
-            -p.get("weight", 1),
             p.get("name", "")
         )
     )
 
     selected = sorted_plants[:species_limit]
 
-    # Always preserve at least one matrix plant when available.
-    if not any(p.get("role") == "Matrix" for p in selected):
+    if design_style == "Meadow":
+        # Keep meadow grass-led whenever possible.
+        grasses = [p for p in sorted_plants if p.get("form") == "Grass"]
+        non_grasses = [p for p in selected if p.get("form") != "Grass"]
+        min_grasses = min(len(grasses), max(2, int(round(species_limit * 0.6))))
+        selected = grasses[:min_grasses]
+        for p in sorted_plants:
+            if p not in selected and len(selected) < species_limit:
+                selected.append(p)
+
+    if design_style == "Perennial Garden":
+        # Stay true to the user's request: only perennials.
+        selected = [p for p in selected if p.get("form") == "Perennial"]
+
+    # Preserve at least one matrix plant when the selected style permits matrix plants.
+    if design_style != "Perennial Garden" and not any(p.get("role") == "Matrix" for p in selected):
         matrix_candidates = [p for p in sorted_plants if p.get("role") == "Matrix"]
         if matrix_candidates and selected:
             selected[-1] = matrix_candidates[0]
@@ -1420,7 +1488,7 @@ with st.sidebar:
     st.header("Site Parameters")
 
     state = st.selectbox("State", ["California"])
-    climate = st.selectbox("California Plant Community", ["Coastal", "Inland", "Dry", "Woodland"])
+    climate = "All Compatible Communities"
 
     design_style = st.selectbox(
         "Design Style",
@@ -1471,7 +1539,7 @@ with st.sidebar:
 # -----------------------------
 
 runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
-selected_plants = filter_plants(runtime_plants, state, climate, selected_usda_zones, sun, water)
+selected_plants = filter_plants(runtime_plants, state, selected_usda_zones, sun, water)
 selected_plants = filter_plants_by_style(selected_plants, design_style)
 
 # Manual include / exclude controls
