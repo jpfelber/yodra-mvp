@@ -25,6 +25,16 @@ def get_supabase_client():
 supabase = get_supabase_client()
 
 def log_event(email, event_type, **kwargs):
+    """Insert an event using only the columns that exist in the current Supabase events table.
+
+    Current expected columns:
+    email, event_type, created_at, climate, sun_exposure, water_needs,
+    design_style, export_type, notes.
+
+    Do not add state, zone, density, or plants_generated_count unless those columns
+    are also added to Supabase. Supabase will reject inserts when unknown columns
+    are included.
+    """
     if supabase is None or not email:
         return False, "Supabase is not connected or user email is missing."
 
@@ -32,15 +42,16 @@ def log_event(email, event_type, **kwargs):
         "email": email,
         "event_type": event_type,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "state": kwargs.get("state"),
-        "zone": kwargs.get("zone"),
         "climate": kwargs.get("climate"),
         "sun_exposure": kwargs.get("sun_exposure"),
         "water_needs": kwargs.get("water_needs"),
-        "plants_generated_count": kwargs.get("plants_generated_count"),
+        "design_style": kwargs.get("design_style"),
         "export_type": kwargs.get("export_type"),
         "notes": kwargs.get("notes"),
     }
+
+    # Remove empty optional fields so Supabase receives a clean payload.
+    event = {k: v for k, v in event.items() if v is not None}
 
     try:
         supabase.table("events").insert(event).execute()
@@ -70,12 +81,11 @@ def log_plant_request(email, requested_plant, **kwargs):
                 "email": email,
                 "requested_plant": requested_plant,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "state": kwargs.get("state"),
-                "zone": kwargs.get("zone"),
                 "climate": kwargs.get("climate"),
                 "sun_exposure": kwargs.get("sun_exposure"),
                 "water_needs": kwargs.get("water_needs"),
-                    }).execute()
+                "notes": requested_plant,
+            }).execute()
         except Exception:
             pass
 
@@ -1488,7 +1498,7 @@ with right:
                 climate=climate,
                 sun_exposure=sun,
                 water_needs=water,
-                density=density,
+                design_style="Native Plant Layout Engine",
             )
             if ok:
                 st.success("Plant request submitted. It was saved to Supabase events as event_type='plant_requested'.")
