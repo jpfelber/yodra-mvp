@@ -266,6 +266,35 @@ MAX_PLANTS_BY_DENSITY = {
     "Very Dense": 500
 }
 
+COMPOSITION_STYLES = [
+    "Naturalistic Composition",
+    "Clustered Massing",
+    "Structured Rhythm",
+]
+
+# These values are intentionally modest. They improve the visual read of the plan
+# without turning the MVP into a complicated drift/community engine.
+COMPOSITION_SETTINGS = {
+    "Naturalistic Composition": {
+        "structure_cluster_count": 3,
+        "accent_cluster_count": 4,
+        "cluster_tightness": 0.13,
+        "matrix_cluster_bias": 0.18,
+    },
+    "Clustered Massing": {
+        "structure_cluster_count": 3,
+        "accent_cluster_count": 3,
+        "cluster_tightness": 0.09,
+        "matrix_cluster_bias": 0.35,
+    },
+    "Structured Rhythm": {
+        "structure_cluster_count": 4,
+        "accent_cluster_count": 4,
+        "cluster_tightness": 0.07,
+        "matrix_cluster_bias": 0.08,
+    },
+}
+
 # Placeholder used only while the plant database is being defined.
 # Runtime radii are recalculated after the active bed scale is known.
 def feet_to_canvas_radius(width_ft):
@@ -984,6 +1013,239 @@ def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_t
 
     return all_placed, total_placed_area / boundary_area
 
+
+def random_point_inside(poly, radius=0, max_attempts=1200):
+    """Return a random point whose plant circle fits inside the polygon."""
+    minx, miny, maxx, maxy = poly.bounds
+    for _ in range(max_attempts):
+        x = random.uniform(minx + radius, maxx - radius)
+        y = random.uniform(miny + radius, maxy - radius)
+        if circle_inside(poly, x, y, radius):
+            return x, y
+    return None
+
+
+def make_composition_centers(poly, count, edge_preference=False):
+    """Create loose visual anchor points for clusters/masses."""
+    centers = []
+    centroid = poly.centroid
+    minx, miny, maxx, maxy = poly.bounds
+    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
+
+    attempts = 0
+    while len(centers) < count and attempts < 2500:
+        attempts += 1
+        pt = random_point_inside(poly, 0)
+        if pt is None:
+            break
+
+        x, y = pt
+        if edge_preference:
+            # Avoid all anchors falling dead-center; structure plants often read better
+            # when they hold edges, corners, or back-of-bed positions.
+            d_centroid = math.dist((x, y), (centroid.x, centroid.y))
+            if d_centroid < diag * 0.18 and random.random() < 0.75:
+                continue
+
+        min_center_spacing = diag * (0.18 if count <= 3 else 0.13)
+        if all(math.dist((x, y), c) >= min_center_spacing for c in centers):
+            centers.append((x, y))
+
+    if not centers:
+        fallback = random_point_inside(poly, 0)
+        if fallback is not None:
+            centers.append(fallback)
+
+    return centers
+
+
+def point_near_center(poly, center, radius, spread):
+    """Find a point near a cluster center, falling back to any valid point."""
+    cx, cy = center
+    minx, miny, maxx, maxy = poly.bounds
+    spread = max(spread, radius * 2.5, 8)
+
+    for _ in range(800):
+        x = random.gauss(cx, spread)
+        y = random.gauss(cy, spread)
+        if x < minx + radius or x > maxx - radius or y < miny + radius or y > maxy - radius:
+            continue
+        if circle_inside(poly, x, y, radius):
+            return x, y
+
+    return random_point_inside(poly, radius)
+
+
+def relaxed_overlap(x, y, r, placed, spacing_factor, plant=None):
+    """A stricter overlap test for visible design composition.
+
+    Canopy plants may still allow underplanting, but structure shrubs no longer create
+    a free overlap pass. This prevents the MVP from producing visually messy circles.
+    """
+    for p in placed:
+        existing_plant = p["plant"]
+        existing_role = existing_plant.get("role", "")
+        current_role = plant.get("role", "") if plant else ""
+
+        existing_allows_underplanting = existing_plant.get("allows_underplanting", False) and existing_role == "Canopy"
+        current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False) and current_role == "Canopy"
+
+        if existing_allows_underplanting and current_role in ["Matrix", "Accent"]:
+            continue
+        if current_allows_underplanting and existing_role in ["Matrix", "Accent"]:
+            continue
+
+        distance = math.dist((x, y), (p["x"], p["y"]))
+        min_distance = (r + p["radius"]) * spacing_factor
+        if distance < min_distance:
+            return True
+
+    return False
+
+
+def place_from_candidates(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total, centers=None, cluster_spread=40, matrix_bias=0.0):
+    """Place a role/layer with optional composition centers."""
+    if not plants:
+        return [], 0
+
+    placed_layer = []
+    placed_area = 0
+    attempts = 0
+    max_attempts = 18000
+
+    while (
+        placed_area < target_area
+        and attempts < max_attempts
+        and len(existing_placed) + len(placed_layer) < max_plants_total
+    ):
+        attempts += 1
+        plant = weighted_choice(plants)
+        if plant is None:
+            break
+
+        r = plant["radius"]
+
+        use_center = centers and (random.random() < max(0.0, min(1.0, 1.0 - matrix_bias)))
+        if use_center:
+            center = random.choice(centers)
+            pt = point_near_center(poly, center, r, cluster_spread)
+        else:
+            pt = random_point_inside(poly, r)
+
+        if pt is None:
+            continue
+
+        x, y = pt
+        all_existing = existing_placed + placed_layer
+        if relaxed_overlap(x, y, r, all_existing, spacing_factor, plant):
+            continue
+
+        placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
+        placed_area += math.pi * (r ** 2)
+
+    return placed_layer, placed_area
+
+
+def composition_role_order(active_roles):
+    preferred = ["Canopy", "Structure", "Matrix", "Accent"]
+    ordered = [role for role in preferred if role in active_roles]
+    ordered.extend([role for role in active_roles if role not in ordered])
+    return ordered
+
+
+def pack_composed_layout(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None, composition_style="Naturalistic Composition"):
+    """Composition-first packing.
+
+    This keeps the MVP simple but makes the visual result more intentional:
+    1. Canopy/large anchors first.
+    2. Structure plants in readable masses.
+    3. Matrix plants fill the field.
+    4. Accent plants occur near structure/anchor moments.
+    """
+    boundary_area = poly.area
+    if boundary_area <= 0:
+        return [], 0, []
+
+    settings = COMPOSITION_SETTINGS.get(composition_style, COMPOSITION_SETTINGS["Naturalistic Composition"])
+    total_target_area = boundary_area * target_coverage
+    all_placed = []
+    total_placed_area = 0
+
+    active_roles = [role for role in ROLE_ORDER if any(p["role"] == role for p in plant_pool)]
+    if not active_roles:
+        return [], 0, []
+
+    if role_split is None:
+        total_default = sum(default_role_percentage(role) for role in active_roles) or 1
+        role_split = {role: default_role_percentage(role) / total_default for role in active_roles}
+
+    minx, miny, maxx, maxy = poly.bounds
+    diag = max(1, math.dist((minx, miny), (maxx, maxy)))
+    cluster_spread = diag * settings["cluster_tightness"]
+
+    structure_centers = make_composition_centers(
+        poly,
+        settings["structure_cluster_count"],
+        edge_preference=True,
+    )
+    accent_centers = list(structure_centers)
+
+    role_debug = []
+
+    for role in composition_role_order(active_roles):
+        role_plants = [p for p in plant_pool if p["role"] == role]
+        if not role_plants:
+            continue
+
+        layer_target_area = total_target_area * role_split.get(role, 0)
+        if layer_target_area <= 0:
+            continue
+
+        if role == "Canopy":
+            centers = make_composition_centers(poly, max(1, min(2, len(role_plants))), edge_preference=True)
+            layer, area = place_from_candidates(
+                poly, role_plants, layer_target_area, max(spacing_factor, 1.2),
+                all_placed, max_plants_total, centers=centers, cluster_spread=diag * 0.18
+            )
+            accent_centers.extend([(p["x"], p["y"]) for p in layer])
+
+        elif role == "Structure":
+            layer, area = place_from_candidates(
+                poly, role_plants, layer_target_area, max(spacing_factor, 1.12),
+                all_placed, max_plants_total, centers=structure_centers, cluster_spread=cluster_spread
+            )
+            accent_centers.extend([(p["x"], p["y"]) for p in layer])
+
+        elif role == "Matrix":
+            # Matrix should read as a continuous field, with only a modest clustering bias.
+            layer, area = place_from_candidates(
+                poly, role_plants, layer_target_area, spacing_factor,
+                all_placed, max_plants_total, centers=structure_centers,
+                cluster_spread=diag * 0.22, matrix_bias=settings["matrix_cluster_bias"]
+            )
+
+        elif role == "Accent":
+            if not accent_centers:
+                accent_centers = make_composition_centers(poly, settings["accent_cluster_count"], edge_preference=False)
+            layer, area = place_from_candidates(
+                poly, role_plants, layer_target_area, max(spacing_factor, 1.05),
+                all_placed, max_plants_total, centers=accent_centers,
+                cluster_spread=diag * 0.11
+            )
+
+        else:
+            layer, area = place_from_candidates(
+                poly, role_plants, layer_target_area, spacing_factor,
+                all_placed, max_plants_total
+            )
+
+        all_placed.extend(layer)
+        total_placed_area += area
+        role_debug.append({"Role": role, "Count": len(layer), "Coverage Sq Ft Equivalent": round(canvas_area_to_sqft(area, feet_per_canvas_unit), 1) if 'feet_per_canvas_unit' in globals() else round(area, 1)})
+
+    return all_placed, total_placed_area / boundary_area, role_debug
+
+
 def sun_is_compatible(selected_sun, plant_sun_options):
     sun_compatibility = {
         "Full Sun": ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Sun"],
@@ -1212,18 +1474,6 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
         svg.write(f'<polygon points="{zone_path}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4 4" opacity="0.45"/>\n')
         svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(role)} zone</text>\n')
 
-    for role, zone_points in (role_zones or {}).items():
-        if not zone_points or len(zone_points) < 3:
-            continue
-        closed_zone = zone_points + [zone_points[0]]
-        layer_name = f"ROLE_ZONE_{role.upper().replace(' ', '_')}"
-        for i in range(len(closed_zone) - 1):
-            x1, y1 = closed_zone[i]
-            x2, y2 = closed_zone[i + 1]
-            dxf.write("0\nLINE\n8\n" + layer_name + "\n")
-            dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
-            dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
-
     for item in placed_instances:
         plant = item["plant"]
         dash = ' stroke-dasharray="6 4"' if plant.get("allows_underplanting", False) else ""
@@ -1348,6 +1598,14 @@ with st.sidebar:
     density = st.selectbox(
         "Coverage Density",
         ["Low", "Moderate", "Dense", "Very Dense"]
+    )
+
+    st.header("Composition")
+    composition_style = st.selectbox(
+        "Layout Character",
+        COMPOSITION_STYLES,
+        index=0,
+        help="Improves the visual read of the plan without adding complex drift/community controls."
     )
 
     target_coverage = DENSITY_OPTIONS[density]
@@ -1600,13 +1858,14 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
-                    placed_instances, actual_coverage = pack_by_role(
+                    placed_instances, actual_coverage, role_debug = pack_composed_layout(
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        role_split=role_split
+                        role_split=role_split,
+                        composition_style=composition_style
                     )
 
                     if len(placed_instances) == 0:
@@ -1622,8 +1881,8 @@ if generate:
                             climate=climate,
                             sun_exposure=sun,
                             water_needs=water,
-                                        density=density,
-                            plants_generated_count=len(placed_instances)
+                            design_style=composition_style,
+                            notes=f"density={density}; plants_generated={len(placed_instances)}"
                         )
 
                         st.subheader("Plan View")
@@ -1729,6 +1988,11 @@ if generate:
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
+                        st.caption(f"Composition style: {composition_style}")
+
+                        if role_debug:
+                            with st.expander("Composition Summary"):
+                                st.dataframe(pd.DataFrame(role_debug), width="stretch")
 
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
