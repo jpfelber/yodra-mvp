@@ -214,12 +214,12 @@ except Exception:
     pass
 
 st.set_page_config(
-    page_title="AI-Powered Planting Design Engine",
+    page_title="Native Plant Layout Engine",
     layout="wide"
 )
 
-st.title("AI-Powered Planting Design Engine")
-st.caption("Draw a planting boundary or upload a scaled bed image, trace the bedline, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
+st.title("Native Plant Layout Engine")
+st.caption("Generate native planting layouts, plant palettes, elevation studies, and plant schedules.")
 
 # -----------------------------
 # Canvas + Scale settings
@@ -813,13 +813,82 @@ PLANTS = [
 ]
 
 
-HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
+ROLE_PLACEMENT_ORDER = ["Canopy", "Structure", "Matrix", "Accent"]
+ROLE_ORDER = sorted({plant["role"] for plant in PLANTS})
 
-HIERARCHY_COVERAGE_SPLIT = {
-    "Anchor": 0.24,
-    "Mid Layer": 0.30,
-    "Accent Layer": 0.20,
-    "Groundcover": 0.26
+DEFAULT_ROLE_COVERAGE_PERCENTAGES = {
+    "Canopy": 10,
+    "Structure": 18,
+    "Matrix": 52,
+    "Accent": 20,
+}
+
+ROLE_SPLITS_BY_COMPOSITION = {
+    "Naturalistic Drift": {"Canopy": 8, "Structure": 16, "Matrix": 56, "Accent": 20},
+    "Resort Native": {"Canopy": 10, "Structure": 30, "Matrix": 42, "Accent": 18},
+    "Restorative Meadow": {"Canopy": 4, "Structure": 10, "Matrix": 68, "Accent": 18},
+    "Contemporary Massing": {"Canopy": 10, "Structure": 28, "Matrix": 48, "Accent": 14},
+}
+
+DEFAULT_PLANT_BEHAVIOR_BY_ROLE = {
+    "Canopy": {
+        "group_min": 1,
+        "group_max": 1,
+        "spacing_min_ft": 15,
+        "spacing_max_ft": 30,
+        "placement_pattern": "Specimen",
+        "edge_preference": "Back",
+    },
+    "Structure": {
+        "group_min": 1,
+        "group_max": 3,
+        "spacing_min_ft": 6,
+        "spacing_max_ft": 12,
+        "placement_pattern": "Anchor Mass",
+        "edge_preference": "Edge",
+    },
+    "Matrix": {
+        "group_min": 5,
+        "group_max": 15,
+        "spacing_min_ft": 2,
+        "spacing_max_ft": 5,
+        "placement_pattern": "Drift",
+        "edge_preference": "Any",
+    },
+    "Accent": {
+        "group_min": 3,
+        "group_max": 7,
+        "spacing_min_ft": 2,
+        "spacing_max_ft": 5,
+        "placement_pattern": "Accent Pocket",
+        "edge_preference": "Interior",
+    },
+}
+
+# Plant-level behavior defaults. These mirror the new plant database fields.
+# If these values are present in a Google Sheet / Excel row later, those values should override these defaults.
+PLANT_BEHAVIOR_BY_CODE = {
+    "CP": {"group_min": 8, "group_max": 20, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "EL": {"group_min": 3, "group_max": 7, "spacing_min_ft": 2, "spacing_max_ft": 4, "placement_pattern": "Accent Pocket", "edge_preference": "Interior"},
+    "FC": {"group_min": 5, "group_max": 12, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "SS": {"group_min": 3, "group_max": 5, "spacing_min_ft": 3, "spacing_max_ft": 5, "placement_pattern": "Accent Pocket", "edge_preference": "Interior"},
+    "ID": {"group_min": 5, "group_max": 9, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "AM": {"group_min": 1, "group_max": 1, "spacing_min_ft": 18, "spacing_max_ft": 25, "placement_pattern": "Specimen", "edge_preference": "Back"},
+    "AHM": {"group_min": 1, "group_max": 3, "spacing_min_ft": 8, "spacing_max_ft": 12, "placement_pattern": "Anchor Mass", "edge_preference": "Edge"},
+    "MR": {"group_min": 5, "group_max": 12, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "SP": {"group_min": 10, "group_max": 25, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "JP": {"group_min": 5, "group_max": 10, "spacing_min_ft": 2, "spacing_max_ft": 4, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "EF": {"group_min": 3, "group_max": 5, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Accent Pocket", "edge_preference": "Interior"},
+    "EC": {"group_min": 5, "group_max": 10, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Accent Pocket", "edge_preference": "Interior"},
+    "AC": {"group_min": 4, "group_max": 8, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "QC": {"group_min": 1, "group_max": 1, "spacing_min_ft": 25, "spacing_max_ft": 35, "placement_pattern": "Specimen", "edge_preference": "Back"},
+    "CT": {"group_min": 8, "group_max": 20, "spacing_min_ft": 1.5, "spacing_max_ft": 2.5, "placement_pattern": "Drift", "edge_preference": "Any"},
+    "PM": {"group_min": 5, "group_max": 12, "spacing_min_ft": 3, "spacing_max_ft": 5, "placement_pattern": "Drift", "edge_preference": "Interior"},
+    "HM": {"group_min": 5, "group_max": 9, "spacing_min_ft": 2, "spacing_max_ft": 3, "placement_pattern": "Accent Pocket", "edge_preference": "Interior"},
+    "RS": {"group_min": 3, "group_max": 5, "spacing_min_ft": 5, "spacing_max_ft": 7, "placement_pattern": "Accent Pocket", "edge_preference": "Interior"},
+    "WF": {"group_min": 3, "group_max": 7, "spacing_min_ft": 4, "spacing_max_ft": 6, "placement_pattern": "Drift", "edge_preference": "Interior"},
+    "ACI": {"group_min": 1, "group_max": 1, "spacing_min_ft": 12, "spacing_max_ft": 20, "placement_pattern": "Specimen", "edge_preference": "Back"},
+    "HA": {"group_min": 1, "group_max": 3, "spacing_min_ft": 10, "spacing_max_ft": 15, "placement_pattern": "Anchor Mass", "edge_preference": "Edge"},
 }
 
 HEIGHT_VARIATION_BY_HIERARCHY = {
@@ -828,6 +897,15 @@ HEIGHT_VARIATION_BY_HIERARCHY = {
     "Accent Layer": 0.15,
     "Groundcover": 0.08
 }
+
+def default_role_percentage(role):
+    return DEFAULT_ROLE_COVERAGE_PERCENTAGES.get(role, 20)
+
+
+def get_role_split_for_composition(composition_style, active_roles):
+    raw = ROLE_SPLITS_BY_COMPOSITION.get(composition_style, DEFAULT_ROLE_COVERAGE_PERCENTAGES)
+    total = sum(raw.get(role, default_role_percentage(role)) for role in active_roles) or 1
+    return {role: raw.get(role, default_role_percentage(role)) / total for role in active_roles}
 
 # -----------------------------
 # Helper functions
@@ -863,61 +941,38 @@ def make_runtime_plant_pool(plants, feet_per_canvas_unit):
     runtime_plants = []
     for plant in plants:
         p = plant.copy()
+
+        role_defaults = DEFAULT_PLANT_BEHAVIOR_BY_ROLE.get(p.get("role"), {})
+        code_defaults = PLANT_BEHAVIOR_BY_CODE.get(p.get("code"), {})
+
+        # Fill behavior fields from role defaults first, then plant code defaults,
+        # then preserve explicit plant database values if they already exist.
+        for key, value in role_defaults.items():
+            p.setdefault(key, value)
+        for key, value in code_defaults.items():
+            p.setdefault(key, value)
+
+        p["group_min"] = int(float(p.get("group_min", 1)))
+        p["group_max"] = int(float(p.get("group_max", max(p["group_min"], 1))))
+        if p["group_max"] < p["group_min"]:
+            p["group_max"] = p["group_min"]
+
+        p["spacing_min_ft"] = float(p.get("spacing_min_ft", p.get("spread_ft", 2)))
+        p["spacing_max_ft"] = float(p.get("spacing_max_ft", max(p["spacing_min_ft"], p.get("spread_ft", 2))))
+        if p["spacing_max_ft"] < p["spacing_min_ft"]:
+            p["spacing_max_ft"] = p["spacing_min_ft"]
+
+        p["placement_pattern"] = p.get("placement_pattern", "Drift")
+        p["edge_preference"] = p.get("edge_preference", "Any")
         p["radius"] = (p["spread_ft"] / 2) / feet_per_canvas_unit
-        p["spacing_min_units"] = p.get("spacing_min_ft", p["spread_ft"]) / feet_per_canvas_unit
-        p["spacing_max_units"] = p.get("spacing_max_ft", max(p["spread_ft"] * 1.5, p["spread_ft"])) / feet_per_canvas_unit
+        p["spacing_min_units"] = p["spacing_min_ft"] / feet_per_canvas_unit
+        p["spacing_max_units"] = p["spacing_max_ft"] / feet_per_canvas_unit
         runtime_plants.append(p)
     return runtime_plants
 
 
 def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
-
-
-def design_adjusted_group_size(plant, design_settings):
-    base_min = int(plant.get("group_min", 1))
-    base_max = int(plant.get("group_max", max(base_min, 1)))
-
-    grouping = design_settings.get("plant_grouping", "Balanced Groups")
-    composition = design_settings.get("composition_style", "Naturalistic Drift")
-
-    multiplier = 1.0
-    if grouping == "Smaller Groups":
-        multiplier *= 0.75
-    elif grouping == "Larger Drifts":
-        multiplier *= 1.35
-
-    if composition == "Restorative Meadow":
-        multiplier *= 1.25
-    elif composition == "Contemporary Massing":
-        multiplier *= 1.10
-    elif composition == "Resort Native":
-        multiplier *= 0.90
-
-    adjusted_min = max(1, int(round(base_min * multiplier)))
-    adjusted_max = max(adjusted_min, int(round(base_max * multiplier)))
-
-    if plant.get("placement_pattern") == "Specimen":
-        adjusted_min = 1
-        adjusted_max = 1
-
-    return adjusted_min, adjusted_max
-
-
-def design_adjusted_spacing_units(plant, feet_per_canvas_unit, design_settings):
-    spacing_min_ft = float(plant.get("spacing_min_ft", plant.get("spread_ft", 2)))
-    spacing_max_ft = float(plant.get("spacing_max_ft", max(spacing_min_ft, plant.get("spread_ft", 2) * 1.5)))
-
-    regularity = design_settings.get("spacing_regularity", "Balanced")
-    if regularity == "Organic":
-        spacing_min_ft *= 0.90
-        spacing_max_ft *= 1.25
-    elif regularity == "Structured":
-        average = (spacing_min_ft + spacing_max_ft) / 2
-        spacing_min_ft = average * 0.95
-        spacing_max_ft = average * 1.05
-
-    return spacing_min_ft / feet_per_canvas_unit, spacing_max_ft / feet_per_canvas_unit
 
 
 def point_matches_edge_preference(poly, point, edge_preference):
@@ -928,7 +983,6 @@ def point_matches_edge_preference(poly, point, edge_preference):
     width = max(maxx - minx, 1)
     height = max(maxy - miny, 1)
     band = max(min(width, height) * 0.18, 18)
-
     distance_to_edge = poly.boundary.distance(point)
 
     if edge_preference == "Edge":
@@ -938,7 +992,7 @@ def point_matches_edge_preference(poly, point, edge_preference):
         return distance_to_edge >= band * 0.65
 
     if edge_preference == "Back":
-        # In canvas coordinates, y=0 is the top. Treat the upper third and perimeter as the "back" zone.
+        # In canvas coordinates, y=0 is the top. Treat the upper third and perimeter as the back zone.
         return point.y <= miny + height * 0.38 or distance_to_edge <= band * 0.75
 
     return True
@@ -969,7 +1023,7 @@ def random_point_in_poly(poly, margin, edge_preference="Any", max_attempts=1200)
     return None
 
 
-def circles_overlap(x, y, r, placed, spacing_factor, plant=None, feet_per_canvas_unit=None):
+def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
     for p in placed:
         existing_plant = p["plant"]
 
@@ -985,13 +1039,10 @@ def circles_overlap(x, y, r, placed, spacing_factor, plant=None, feet_per_canvas
         distance = math.dist((x, y), (p["x"], p["y"]))
         radius_distance = (r + p["radius"]) * spacing_factor
 
-        plant_spacing = 0
-        if plant is not None:
-            plant_spacing = plant.get("spacing_min_units", 0)
+        plant_spacing = plant.get("spacing_min_units", 0) if plant is not None else 0
         existing_spacing = existing_plant.get("spacing_min_units", 0)
-
-        design_spacing = max(plant_spacing, existing_spacing) * 0.85
-        min_distance = max(radius_distance, design_spacing)
+        behavior_distance = max(plant_spacing, existing_spacing) * 0.85
+        min_distance = max(radius_distance, behavior_distance)
 
         if distance < min_distance:
             return True
@@ -1007,66 +1058,126 @@ def weighted_choice(plants):
     return random.choices(plants, weights=weights, k=1)[0]
 
 
+def design_adjusted_group_size(plant, design_settings):
+    base_min = int(plant.get("group_min", 1))
+    base_max = int(plant.get("group_max", max(base_min, 1)))
+
+    grouping = design_settings.get("plant_grouping", "Balanced Groups")
+    composition = design_settings.get("composition_style", "Naturalistic Drift")
+    repetition = design_settings.get("repetition", "Balanced")
+
+    multiplier = 1.0
+    if grouping == "Smaller Groups":
+        multiplier *= 0.75
+    elif grouping == "Larger Drifts":
+        multiplier *= 1.35
+
+    if composition == "Restorative Meadow":
+        multiplier *= 1.25
+    elif composition == "Contemporary Massing":
+        multiplier *= 1.10
+    elif composition == "Resort Native":
+        multiplier *= 0.90
+
+    if repetition == "High":
+        # More groups, slightly smaller group size.
+        multiplier *= 0.88
+    elif repetition == "Low":
+        # Fewer groups, larger visual masses.
+        multiplier *= 1.12
+
+    adjusted_min = max(1, int(round(base_min * multiplier)))
+    adjusted_max = max(adjusted_min, int(round(base_max * multiplier)))
+
+    if plant.get("placement_pattern") == "Specimen":
+        adjusted_min = 1
+        adjusted_max = 1
+
+    return adjusted_min, adjusted_max
+
+
+def design_adjusted_spacing_units(plant, feet_per_canvas_unit, design_settings):
+    spacing_min_ft = float(plant.get("spacing_min_ft", plant.get("spread_ft", 2)))
+    spacing_max_ft = float(plant.get("spacing_max_ft", max(spacing_min_ft, plant.get("spread_ft", 2) * 1.5)))
+
+    regularity = design_settings.get("spacing_regularity", "Balanced")
+    if regularity == "Organic":
+        spacing_min_ft *= 0.90
+        spacing_max_ft *= 1.25
+    elif regularity == "Structured":
+        average = (spacing_min_ft + spacing_max_ft) / 2
+        spacing_min_ft = average * 0.95
+        spacing_max_ft = average * 1.05
+
+    return spacing_min_ft / feet_per_canvas_unit, spacing_max_ft / feet_per_canvas_unit
+
+
 def place_group(poly, plant, group_size, spacing_factor, existing_placed, max_plants_total, feet_per_canvas_unit, design_settings):
     if len(existing_placed) >= max_plants_total:
         return []
 
     r = plant["radius"]
     spacing_min_units, spacing_max_units = design_adjusted_spacing_units(plant, feet_per_canvas_unit, design_settings)
+    pattern = plant.get("placement_pattern", "Drift")
+    edge_preference = plant.get("edge_preference", "Any")
 
-    if plant.get("placement_pattern") == "Specimen" or group_size <= 1:
-        center = random_point_in_poly(poly, r, plant.get("edge_preference", "Any"))
+    if pattern == "Specimen" or group_size <= 1:
+        center = random_point_in_poly(poly, r, edge_preference)
         if center is None:
             return []
         x, y = center
-        if circles_overlap(x, y, r, existing_placed, spacing_factor, plant, feet_per_canvas_unit):
+        if circles_overlap(x, y, r, existing_placed, spacing_factor, plant):
             return []
-        return [{
-            "x": x,
-            "y": y,
-            "radius": r,
-            "plant": plant,
-            "group_id": f"{plant['code']}-{random.randint(10000, 99999)}"
-        }]
+        return [{"x": x, "y": y, "radius": r, "plant": plant, "group_id": f"{plant['code']}-{random.randint(10000, 99999)}"}]
 
-    cluster_margin = max(r, spacing_max_units)
-    center = random_point_in_poly(poly, cluster_margin, plant.get("edge_preference", "Any"))
+    cluster_margin = max(r, spacing_max_units * 1.35)
+    center = random_point_in_poly(poly, cluster_margin, edge_preference)
     if center is None:
         return []
 
     cx, cy = center
     group_id = f"{plant['code']}-{random.randint(10000, 99999)}"
     placed_group = []
-
-    first_jitter = spacing_min_units * 0.20
-    first_x = cx + random.uniform(-first_jitter, first_jitter)
-    first_y = cy + random.uniform(-first_jitter, first_jitter)
-
-    if circle_inside(poly, first_x, first_y, r) and not circles_overlap(first_x, first_y, r, existing_placed, spacing_factor, plant, feet_per_canvas_unit):
-        placed_group.append({"x": first_x, "y": first_y, "radius": r, "plant": plant, "group_id": group_id})
+    drift_axis = random.uniform(0, math.tau)
+    if design_settings.get("composition_style") in ("Naturalistic Drift", "Restorative Meadow"):
+        drift_axis = design_settings.get("drift_bias", drift_axis)
 
     attempts = 0
-    max_attempts = max(300, group_size * 90)
+    max_attempts = max(350, group_size * 120)
 
     while len(placed_group) < group_size and attempts < max_attempts and len(existing_placed) + len(placed_group) < max_plants_total:
         attempts += 1
 
-        angle = random.uniform(0, math.tau)
-        ring = math.sqrt(len(placed_group) + random.random())
-        distance_from_center = random.uniform(spacing_min_units, spacing_max_units) * ring * 0.75
+        if len(placed_group) == 0:
+            x = cx + random.uniform(-spacing_min_units * 0.15, spacing_min_units * 0.15)
+            y = cy + random.uniform(-spacing_min_units * 0.15, spacing_min_units * 0.15)
+        else:
+            ring = math.sqrt(len(placed_group) + random.random())
+            distance_from_center = random.uniform(spacing_min_units, spacing_max_units) * ring * 0.78
+            angle = random.uniform(0, math.tau)
 
-        if plant.get("placement_pattern") in ("Drift", "Accent Pocket"):
-            drift_bias = design_settings.get("drift_bias", random.uniform(0, math.tau))
-            angle = (angle * 0.55) + (drift_bias * 0.45)
+            if pattern in ("Drift", "Accent Pocket"):
+                angle = (angle * 0.45) + (drift_axis * 0.55)
 
-        x = cx + math.cos(angle) * distance_from_center
-        y = cy + math.sin(angle) * distance_from_center
+            # Drifts are elongated. Accent pockets and anchor masses stay tighter.
+            if pattern == "Drift":
+                major = distance_from_center
+                minor = distance_from_center * random.uniform(0.35, 0.75)
+            elif pattern == "Anchor Mass":
+                major = distance_from_center * 0.75
+                minor = distance_from_center * 0.75
+            else:
+                major = distance_from_center * 0.70
+                minor = distance_from_center * 0.55
+
+            x = cx + math.cos(angle) * major
+            y = cy + math.sin(angle) * minor
 
         if not circle_inside(poly, x, y, r):
             continue
 
         all_existing = existing_placed + placed_group
-        if circles_overlap(x, y, r, all_existing, spacing_factor, plant, feet_per_canvas_unit):
+        if circles_overlap(x, y, r, all_existing, spacing_factor, plant):
             continue
 
         placed_group.append({"x": x, "y": y, "radius": r, "plant": plant, "group_id": group_id})
@@ -1085,7 +1196,8 @@ def pack_layer_by_groups(poly, plants, target_area, spacing_factor, existing_pla
     placed_layer = []
     placed_area = 0
     attempts = 0
-    max_attempts = 1100
+    repetition = design_settings.get("repetition", "Balanced")
+    max_attempts = 900 if repetition == "Low" else 1300 if repetition == "Balanced" else 1700
 
     while (
         placed_area < target_area
@@ -1093,7 +1205,6 @@ def pack_layer_by_groups(poly, plants, target_area, spacing_factor, existing_pla
         and len(existing_placed) + len(placed_layer) < max_plants_total
     ):
         attempts += 1
-
         plant = weighted_choice(plants)
         if plant is None:
             break
@@ -1109,7 +1220,7 @@ def pack_layer_by_groups(poly, plants, target_area, spacing_factor, existing_pla
             existing_placed=existing_placed + placed_layer,
             max_plants_total=max_plants_total,
             feet_per_canvas_unit=feet_per_canvas_unit,
-            design_settings=design_settings
+            design_settings=design_settings,
         )
 
         if not group:
@@ -1139,15 +1250,10 @@ def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_t
         return [], 0
 
     if role_split is None:
-        total_default = sum(default_role_percentage(role) for role in active_roles) or 1
-        role_split = {
-            role: default_role_percentage(role) / total_default
-            for role in active_roles
-        }
+        role_split = get_role_split_for_composition(design_settings.get("composition_style", "Naturalistic Drift"), active_roles)
 
     for role in active_roles:
         role_plants = [p for p in plant_pool if p["role"] == role]
-
         if not role_plants:
             continue
 
@@ -1161,7 +1267,7 @@ def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_t
             existing_placed=all_placed,
             max_plants_total=max_plants_total,
             feet_per_canvas_unit=feet_per_canvas_unit,
-            design_settings=design_settings
+            design_settings=design_settings,
         )
 
         all_placed.extend(placed_layer)
@@ -1194,12 +1300,18 @@ def water_is_compatible(selected_water, plant_water_options):
     return any(water_value in compatible_values for water_value in plant_water_options)
 
 
-def filter_plants(plant_database, state, climate, sun, water, style):
+def hardiness_is_compatible(selected_zones, usda_min, usda_max):
+    if not selected_zones:
+        return True
+    return any(usda_min <= zone <= usda_max for zone in selected_zones)
+
+
+def filter_plants(plant_database, state, climate, selected_usda_zones, sun, water):
     return [
         plant for plant in plant_database
         if state in plant["state"]
         and climate in plant["climate"]
-        and style in plant["style"]
+        and hardiness_is_compatible(selected_usda_zones, plant["usda_min"], plant["usda_max"])
         and sun_is_compatible(sun, plant["sun"])
         and water_is_compatible(water, plant["water"])
     ]
@@ -1340,10 +1452,7 @@ def escape_svg_text(value):
 
 
 def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit):
-    """Create a clean vector SVG of the plan geometry.
-
-    This avoids relying on Matplotlib's SVG output and gives you true circle/vector objects.
-    """
+    """Create a clean vector SVG of the plan geometry."""
     path_points = " ".join([f"{x:.2f},{y:.2f}" for x, y in points])
     svg = StringIO()
     svg.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_width}" height="{canvas_height}" viewBox="0 0 {canvas_width} {canvas_height}">\n')
@@ -1445,8 +1554,19 @@ with st.sidebar:
     st.header("Site Parameters")
 
     state = st.selectbox("State", ["California"])
-    climate = st.selectbox("Climate", ["Coastal", "Inland", "Dry", "Woodland"])
-    zone_microclimate = st.text_input("Zone / Microclimate", placeholder="Example: USDA 9b, Sunset 16, coastal fog belt")
+    climate = st.selectbox("California Plant Community", ["Coastal", "Inland", "Dry", "Woodland"])
+
+    st.markdown("**USDA Hardiness**")
+    st.caption("Select one or more USDA zones. Plants are included when the selected zone falls between USDA Min and USDA Max in the plant database.")
+    usda_zone_options = list(range(5, 11))
+    default_usda_zones = [9]
+    selected_usda_zones = []
+    zone_cols = st.columns(3)
+    for idx, zone in enumerate(usda_zone_options):
+        with zone_cols[idx % 3]:
+            checked = st.checkbox(f"Zone {zone}", value=zone in default_usda_zones, key=f"usda_zone_{zone}")
+            if checked:
+                selected_usda_zones.append(zone)
 
     sun = st.selectbox(
         "Sun Exposure",
@@ -1456,13 +1576,6 @@ with st.sidebar:
     water = st.selectbox(
         "Water Needs",
         ["Low", "Moderate-Low", "Low-Moderate", "Moderate"]
-    )
-
-    st.header("Design Style")
-
-    style = st.selectbox(
-        "Style",
-        ["Naturalistic", "Contemporary", "Formal"]
     )
 
     st.header("Density")
@@ -1479,27 +1592,32 @@ with st.sidebar:
     st.header("Design Direction")
     composition_style = st.selectbox(
         "Composition Style",
-        ["Naturalistic Drift", "Resort Native", "Restorative Meadow", "Contemporary Massing"]
+        ["Naturalistic Drift", "Resort Native", "Restorative Meadow", "Contemporary Massing"],
+        index=0
     )
-
     plant_grouping = st.selectbox(
         "Plant Grouping",
         ["Smaller Groups", "Balanced Groups", "Larger Drifts"],
         index=1
     )
-
     spacing_regularity = st.selectbox(
         "Spacing Regularity",
         ["Organic", "Balanced", "Structured"],
         index=1
     )
-
+    repetition = st.selectbox(
+        "Repetition",
+        ["Low", "Balanced", "High"],
+        index=1
+    )
     design_settings = {
         "composition_style": composition_style,
         "plant_grouping": plant_grouping,
         "spacing_regularity": spacing_regularity,
+        "repetition": repetition,
         "drift_bias": random.uniform(0, math.tau),
     }
+    role_split = get_role_split_for_composition(composition_style, ROLE_ORDER)
 
     st.header("Scale")
     st.caption(f"Bed limit: {MAX_BED_FEET} ft max length or width")
@@ -1511,7 +1629,7 @@ with st.sidebar:
 # -----------------------------
 
 runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
-selected_plants = filter_plants(runtime_plants, state, climate, sun, water, style)
+selected_plants = filter_plants(runtime_plants, state, climate, selected_usda_zones, sun, water)
 # Manual include / exclude controls
 all_matching_names = [p["name"] for p in selected_plants]
 with st.sidebar:
@@ -1519,20 +1637,7 @@ with st.sidebar:
     include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
-    st.header("Plant Category Percentages")
-    anchor_pct = st.slider("Anchor", 0, 100, 24)
-    mid_pct = st.slider("Mid Layer", 0, 100, 30)
-    accent_pct = st.slider("Accent Layer", 0, 100, 20)
-    ground_pct = st.slider("Groundcover", 0, 100, 26)
-    total_pct = anchor_pct + mid_pct + accent_pct + ground_pct
-    if total_pct == 0:
-        total_pct = 1
-    hierarchy_split = {
-        "Anchor": anchor_pct / total_pct,
-        "Mid Layer": mid_pct / total_pct,
-        "Accent Layer": accent_pct / total_pct,
-        "Groundcover": ground_pct / total_pct,
-    }
+    st.caption("Design composition is controlled above by Composition Style, Plant Grouping, Spacing Regularity, and Repetition.")
 
     st.header("Request a Plant")
     requested_plant = st.text_input("Plant you want added")
@@ -1541,13 +1646,10 @@ with st.sidebar:
             log_event(
                 st.session_state.get("user_email"),
                 "plant_requested",
-                state=state,
-                zone=zone_microclimate,
                 climate=climate,
                 sun_exposure=sun,
                 water_needs=water,
-                design_style=style,
-                density=density,
+                design_style="Native Plant Layout Engine",
                 notes=requested_plant.strip()
             )
             st.success("Plant request submitted.")
@@ -1656,16 +1758,13 @@ with right:
     st.subheader("2. Selected Plant Palette")
 
     if len(selected_plants) == 0:
-        st.warning("No plants match these parameters yet. Try adjusting sun exposure, water needs, or style.")
+        st.warning("No plants match these parameters yet. Try adjusting USDA hardiness, sun exposure, or water needs.")
     else:
         for plant in selected_plants:
             canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
             st.write(f"**{plant['name']}**")
             st.caption(
-                f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | "
-                f"group: {plant.get('group_min', 1)}-{plant.get('group_max', 1)} | "
-                f"spacing: {plant.get('spacing_min_ft', plant['spread_ft'])}-{plant.get('spacing_max_ft', plant['spread_ft'])} ft | "
-                f"{plant.get('placement_pattern', 'Individual')}{canopy_note}"
+                f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | spread: {plant['spread_ft']} ft{canopy_note}"
             )
 
 # -----------------------------
@@ -1719,9 +1818,7 @@ if generate:
             log_event(st.session_state.user_email, "paywall_shown")
             st.stop()
     try:
-        status = st.empty()
-        status.info("Analyzing site parameters...")
-        with st.spinner("Generating planting layout..."):
+        with st.spinner("Generating planting plan and elevation view..."):
             if input_method == "Draw Boundary" and canvas_result is not None:
                 points = get_polygon_from_canvas(canvas_result.json_data)
             elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
@@ -1754,13 +1851,15 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
-                    placed_instances, actual_coverage = pack_by_hierarchy(
+                    placed_instances, actual_coverage = pack_by_role(
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        hierarchy_split=hierarchy_split
+                        role_split=role_split,
+                        feet_per_canvas_unit=feet_per_canvas_unit,
+                        design_settings=design_settings
                     )
 
                     if len(placed_instances) == 0:
@@ -1771,17 +1870,13 @@ if generate:
                         log_event(
                             st.session_state.get("user_email"),
                             "generation_run",
-                            state=state,
-                            zone=zone_microclimate,
                             climate=climate,
                             sun_exposure=sun,
                             water_needs=water,
-                            design_style=style,
-                            density=density,
-                            plants_generated_count=len(placed_instances)
+                            design_style=composition_style,
+                            notes=f"Generated {len(placed_instances)} plant instances; density={density}; grouping={plant_grouping}; spacing={spacing_regularity}; repetition={repetition}"
                         )
 
-                        status.info("Resolving spacing and density...")
                         st.subheader("Plan View")
 
                         fig, ax = plt.subplots(figsize=(10, 10))
@@ -1886,7 +1981,6 @@ if generate:
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
 
-                        status.info("Building elevation study...")
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
 
@@ -1960,7 +2054,6 @@ if generate:
 
                         st.write(counts)
 
-                        status.info("Preparing plant schedule...")
                         st.subheader("Plant Schedule")
 
                         schedule = []
@@ -1973,7 +2066,13 @@ if generate:
                                 "Common Name": plant["common_name"],
                                 "Form": plant["form"],
                                 "Role": plant["role"],
-                                "Style": ", ".join(plant["style"]),
+                                "Group Min": plant.get("group_min", 1),
+                                "Group Max": plant.get("group_max", 1),
+                                "Spacing Min Ft": plant.get("spacing_min_ft", plant.get("spread_ft")),
+                                "Spacing Max Ft": plant.get("spacing_max_ft", plant.get("spread_ft")),
+                                "Placement Pattern": plant.get("placement_pattern", ""),
+                                "Edge Preference": plant.get("edge_preference", "Any"),
+                                "Group Count": len(set(item.get("group_id") for item in placed_instances if item["plant"]["name"] == plant_name)),
                                 "Texture": plant["texture"],
                                 "Color Tone": plant["color_tone"],
                                 "Visual Weight": plant["visual_weight"],
@@ -1982,17 +2081,12 @@ if generate:
                                 "Count": count,
                                 "State": state,
                                 "Climate": ", ".join(plant["climate"]),
+                                "USDA Min": plant["usda_min"],
+                                "USDA Max": plant["usda_max"],
                                 "Sun": ", ".join(plant["sun"]),
                                 "Water": ", ".join(plant["water"]),
                                 "Seasonality": plant["seasonality"],
-                                "Allows Underplanting": plant.get("allows_underplanting", False),
-                                "Group Min": plant.get("group_min", 1),
-                                "Group Max": plant.get("group_max", 1),
-                                "Spacing Min Ft": plant.get("spacing_min_ft", plant["spread_ft"]),
-                                "Spacing Max Ft": plant.get("spacing_max_ft", plant["spread_ft"]),
-                                "Placement Pattern": plant.get("placement_pattern", "Individual"),
-                                "Edge Preference": plant.get("edge_preference", "Any"),
-                                "Group Count": len(set(item.get("group_id") for item in placed_instances if item["plant"]["name"] == plant_name))
+                                "Allows Underplanting": plant.get("allows_underplanting", False)
                             })
 
                         schedule_df = pd.DataFrame(schedule)
@@ -2007,7 +2101,6 @@ if generate:
                             on_click=lambda: increment_export_count(st.session_state.get("user_email"))
                         )
                         log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
-                        status.success("Planting layout generated.")
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
