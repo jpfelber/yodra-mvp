@@ -972,7 +972,7 @@ ROLE_BEHAVIOR_DEFAULTS = {
 }
 
 
-def get_plant_behavior(plant, grouping_scale="Balanced", spacing_character="Balanced", composition_style="Naturalistic Drift"):
+def get_plant_behavior(plant, grouping_scale="Balanced", spacing_character="Balanced", composition_style="Naturalistic Drift", deadline=None):
     """Infer placement behavior from Role.
 
     This version does not require a Placement Pattern column.
