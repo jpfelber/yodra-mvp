@@ -260,10 +260,10 @@ SPACING_BY_DENSITY = {
 }
 
 MAX_PLANTS_BY_DENSITY = {
-    "Low": 180,
-    "Moderate": 260,
-    "Dense": 350,
-    "Very Dense": 500
+    "Low": 120,
+    "Moderate": 180,
+    "Dense": 240,
+    "Very Dense": 320
 }
 
 COMPOSITION_STYLES = [
@@ -1222,7 +1222,7 @@ def place_from_candidates(poly, plants, target_area, spacing_factor, existing_pl
 
     placed_layer = []
     placed_area = 0
-    max_attempts = 22000
+    max_attempts = 8000
     attempts = 0
     species_targets = get_species_target_area(target_area, plants)
     code_to_recent_centers = {}
@@ -1322,7 +1322,7 @@ def composition_role_order(active_roles):
     return ordered
 
 
-def pack_composed_layout(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None, composition_style="Naturalistic Composition"):
+def pack_composed_layout(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, composition_style="Naturalistic Composition"):
     """Composition-first packing.
 
     This keeps the MVP simple but makes the visual result more intentional:
@@ -1344,10 +1344,6 @@ def pack_composed_layout(poly, plant_pool, target_coverage, spacing_factor, max_
     if not active_roles:
         return [], 0, []
 
-    if role_split is None:
-        total_default = sum(default_role_percentage(role) for role in active_roles) or 1
-        role_split = {role: default_role_percentage(role) / total_default for role in active_roles}
-
     minx, miny, maxx, maxy = poly.bounds
     diag = max(1, math.dist((minx, miny), (maxx, maxy)))
     cluster_spread = diag * settings["cluster_tightness"]
@@ -1366,7 +1362,23 @@ def pack_composed_layout(poly, plant_pool, target_coverage, spacing_factor, max_
         if not role_plants:
             continue
 
-        layer_target_area = total_target_area * role_split.get(role, 0)
+        # Database-driven role allocation. Role percentages/sliders were removed
+        # because they fought the hierarchy already stored in the sheet.
+        role_plants_dominance = sum(max(1, float(p.get("dominance_percent", 10) or 10)) for p in role_plants)
+        total_palette_dominance = sum(max(1, float(p.get("dominance_percent", 10) or 10)) for p in plant_pool) or 1
+        layer_target_area = total_target_area * (role_plants_dominance / total_palette_dominance)
+
+        # Protect the main design hierarchy: Tier 1 and Tier 2 should not consume the whole bed,
+        # even if their circles are large. Matrix should remain the dominant visual field.
+        if role == "Canopy":
+            layer_target_area = min(layer_target_area, total_target_area * 0.12)
+        elif role == "Structure":
+            layer_target_area = min(layer_target_area, total_target_area * 0.22)
+        elif role == "Accent":
+            layer_target_area = min(layer_target_area, total_target_area * 0.20)
+        elif role == "Matrix":
+            layer_target_area = max(layer_target_area, total_target_area * 0.46)
+
         if layer_target_area <= 0:
             continue
 
@@ -1798,19 +1810,7 @@ with st.sidebar:
     include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
-    st.header("Role Percentages")
-    st.caption("These sliders use the exact Role values from the plant database.")
-    role_percentages = {}
-    for role in ROLE_ORDER:
-        role_percentages[role] = st.slider(role, 0, 100, default_role_percentage(role), key=f"role_pct_{role}")
-
-    total_pct = sum(role_percentages.values())
-    if total_pct == 0:
-        total_pct = 1
-    role_split = {
-        role: value / total_pct
-        for role, value in role_percentages.items()
-    }
+    st.caption("Composition is now controlled by the plant database: Design Tier, Dominance %, Placement Pattern, Group Min/Max, Edge Preference, Community Group, and Companion Plants.")
 forced = [p for p in runtime_plants if p["name"] in include_names]
 selected_plants = [p for p in selected_plants if p["name"] not in exclude_names]
 for p in forced:
@@ -2033,7 +2033,6 @@ if generate:
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        role_split=role_split,
                         composition_style=composition_style
                     )
 
