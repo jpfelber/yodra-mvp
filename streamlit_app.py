@@ -8,38 +8,6 @@ except Exception:
 import pandas as pd
 
 # -------------------------
-# PASSWORD PROTECTION
-# -------------------------
-
-PASSWORD = st.secrets["APP_PASSWORD"]
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if st.session_state.authenticated:
-        return True
-
-    st.title("YODRA")
-    st.markdown("### Private Beta Access")
-
-    password = st.text_input("Enter access password", type="password")
-
-    if st.button("Enter"):
-        if password == PASSWORD:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Incorrect password")
-
-    return False
-
-
-if not check_password():
-    st.stop()
-
-
-# -------------------------
 # SUPABASE USER TRACKING
 # -------------------------
 
@@ -68,7 +36,6 @@ def log_event(email, event_type, **kwargs):
         "climate": kwargs.get("climate"),
         "sun_exposure": kwargs.get("sun_exposure"),
         "water_needs": kwargs.get("water_needs"),
-        "design_style": kwargs.get("design_style"),
         "density": kwargs.get("density"),
         "plants_generated_count": kwargs.get("plants_generated_count"),
         "export_type": kwargs.get("export_type"),
@@ -214,12 +181,12 @@ except Exception:
     pass
 
 st.set_page_config(
-    page_title="AI-Powered Planting Design Engine",
+    page_title="California Native Planting Design Studio",
     layout="wide"
 )
 
-st.title("AI-Powered Planting Design Engine")
-st.caption("Draw a planting boundary or upload a scaled bed image, trace the bedline, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
+st.title("California Native Planting Design Studio")
+st.caption("A naturalistic, restorative planting generator for California native landscape studies, plant palettes, plan layouts, elevation views, and schedules.")
 
 # -----------------------------
 # Canvas + Scale settings
@@ -279,7 +246,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(2),
         "form": "Grass",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Green",
         "visual_weight": 1,
@@ -305,7 +271,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(2),
         "form": "Perennial",
         "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Silver-Green",
         "visual_weight": 2,
@@ -331,7 +296,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(2),
         "form": "Grass",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Blue-Green",
         "visual_weight": 1,
@@ -357,7 +321,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(4),
         "form": "Perennial",
         "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Bold",
         "color_tone": "Dark Green",
         "visual_weight": 2,
@@ -383,7 +346,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(2),
         "form": "Perennial",
         "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Green",
         "visual_weight": 2,
@@ -409,7 +371,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(20),
         "form": "Tree",
         "role": "Canopy",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Bold",
         "color_tone": "Dark Green",
         "visual_weight": 3,
@@ -435,7 +396,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(8),
         "form": "Shrub",
         "role": "Structure",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Grey-Green",
         "visual_weight": 3,
@@ -461,7 +421,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(5),
         "form": "Grass",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Green",
         "visual_weight": 2,
@@ -487,7 +446,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(2),
         "form": "Grass",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Golden Green",
         "visual_weight": 1,
@@ -513,7 +471,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(3),
         "form": "Grass",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Blue-Green",
         "visual_weight": 2,
@@ -539,7 +496,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(5),
         "form": "Shrub",
         "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Grey-Green",
         "visual_weight": 2,
@@ -565,7 +521,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(3),
         "form": "Perennial",
         "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Green",
         "visual_weight": 2,
@@ -591,7 +546,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(5),
         "form": "Shrub",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Silver-Grey",
         "visual_weight": 2,
@@ -617,7 +571,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(30),
         "form": "Tree",
         "role": "Canopy",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Bold",
         "color_tone": "Dark Green",
         "visual_weight": 3,
@@ -643,7 +596,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(2),
         "form": "Grass",
         "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Fine",
         "color_tone": "Green",
         "visual_weight": 1,
@@ -669,7 +621,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(4),
         "form": "Fern",
         "role": "Matrix",
-        "style": ["Naturalistic"],
         "texture": "Bold",
         "color_tone": "Dark Green",
         "visual_weight": 2,
@@ -695,7 +646,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(3),
         "form": "Perennial",
         "role": "Accent",
-        "style": ["Naturalistic"],
         "texture": "Medium",
         "color_tone": "Green",
         "visual_weight": 2,
@@ -721,7 +671,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(6),
         "form": "Shrub",
         "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Green",
         "visual_weight": 2,
@@ -747,7 +696,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(6),
         "form": "Fern",
         "role": "Matrix",
-        "style": ["Naturalistic"],
         "texture": "Bold",
         "color_tone": "Dark Green",
         "visual_weight": 3,
@@ -773,7 +721,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(15),
         "form": "Tree",
         "role": "Canopy",
-        "style": ["Naturalistic"],
         "texture": "Medium",
         "color_tone": "Green",
         "visual_weight": 3,
@@ -799,7 +746,6 @@ PLANTS = [
         "radius": feet_to_canvas_radius(10),
         "form": "Shrub",
         "role": "Structure",
-        "style": ["Naturalistic", "Contemporary"],
         "texture": "Medium",
         "color_tone": "Dark Green",
         "visual_weight": 3,
@@ -813,14 +759,18 @@ PLANTS = [
 ]
 
 
-HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
 
-HIERARCHY_COVERAGE_SPLIT = {
-    "Anchor": 0.24,
-    "Mid Layer": 0.30,
-    "Accent Layer": 0.20,
-    "Groundcover": 0.26
+ROLE_ORDER = sorted({plant["role"] for plant in PLANTS})
+
+DEFAULT_ROLE_COVERAGE_PERCENTAGES = {
+    "Canopy": 12,
+    "Structure": 22,
+    "Matrix": 44,
+    "Accent": 22,
 }
+
+def default_role_percentage(role):
+    return DEFAULT_ROLE_COVERAGE_PERCENTAGES.get(role, 20)
 
 HEIGHT_VARIATION_BY_HIERARCHY = {
     "Anchor": 0.06,
@@ -945,7 +895,7 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
     return placed_layer, placed_area
 
 
-def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, hierarchy_split=None):
+def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None):
     boundary_area = poly.area
 
     if boundary_area <= 0:
@@ -955,18 +905,29 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
     all_placed = []
     total_placed_area = 0
 
-    for hierarchy in HIERARCHY_ORDER:
-        layer_plants = [p for p in plant_pool if p["hierarchy"] == hierarchy]
+    active_roles = [role for role in ROLE_ORDER if any(p["role"] == role for p in plant_pool)]
 
-        if not layer_plants:
+    if not active_roles:
+        return [], 0
+
+    if role_split is None:
+        total_default = sum(default_role_percentage(role) for role in active_roles) or 1
+        role_split = {
+            role: default_role_percentage(role) / total_default
+            for role in active_roles
+        }
+
+    for role in active_roles:
+        role_plants = [p for p in plant_pool if p["role"] == role]
+
+        if not role_plants:
             continue
 
-        split = hierarchy_split or HIERARCHY_COVERAGE_SPLIT
-        layer_target_area = total_target_area * split.get(hierarchy, HIERARCHY_COVERAGE_SPLIT[hierarchy])
+        layer_target_area = total_target_area * role_split.get(role, 0)
 
         placed_layer, placed_area = pack_layer(
             poly=poly,
-            plants=layer_plants,
+            plants=role_plants,
             target_area=layer_target_area,
             spacing_factor=spacing_factor,
             existing_placed=all_placed,
@@ -977,7 +938,6 @@ def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_pla
         total_placed_area += placed_area
 
     return all_placed, total_placed_area / boundary_area
-
 
 def sun_is_compatible(selected_sun, plant_sun_options):
     sun_compatibility = {
@@ -1003,16 +963,21 @@ def water_is_compatible(selected_water, plant_water_options):
     return any(water_value in compatible_values for water_value in plant_water_options)
 
 
-def filter_plants(plant_database, state, climate, sun, water, style):
+def hardiness_is_compatible(selected_zones, usda_min, usda_max):
+    if not selected_zones:
+        return True
+    return any(usda_min <= zone <= usda_max for zone in selected_zones)
+
+
+def filter_plants(plant_database, state, climate, selected_usda_zones, sun, water):
     return [
         plant for plant in plant_database
         if state in plant["state"]
         and climate in plant["climate"]
-        and style in plant["style"]
+        and hardiness_is_compatible(selected_usda_zones, plant["usda_min"], plant["usda_max"])
         and sun_is_compatible(sun, plant["sun"])
         and water_is_compatible(water, plant["water"])
     ]
-
 
 def get_polygon_from_canvas(canvas_json):
     if canvas_json is None:
@@ -1254,8 +1219,19 @@ with st.sidebar:
     st.header("Site Parameters")
 
     state = st.selectbox("State", ["California"])
-    climate = st.selectbox("Climate", ["Coastal", "Inland", "Dry", "Woodland"])
-    zone_microclimate = st.text_input("Zone / Microclimate", placeholder="Example: USDA 9b, Sunset 16, coastal fog belt")
+    climate = st.selectbox("California Plant Community", ["Coastal", "Inland", "Dry", "Woodland"])
+
+    st.markdown("**USDA Hardiness**")
+    st.caption("Select one or more USDA zones. Plants are included when the selected zone falls between USDA Min and USDA Max in the plant database.")
+    usda_zone_options = list(range(5, 11))
+    default_usda_zones = [9]
+    selected_usda_zones = []
+    zone_cols = st.columns(3)
+    for idx, zone in enumerate(usda_zone_options):
+        with zone_cols[idx % 3]:
+            checked = st.checkbox(f"Zone {zone}", value=zone in default_usda_zones, key=f"usda_zone_{zone}")
+            if checked:
+                selected_usda_zones.append(zone)
 
     sun = st.selectbox(
         "Sun Exposure",
@@ -1265,13 +1241,6 @@ with st.sidebar:
     water = st.selectbox(
         "Water Needs",
         ["Low", "Moderate-Low", "Low-Moderate", "Moderate"]
-    )
-
-    st.header("Design Style")
-
-    style = st.selectbox(
-        "Style",
-        ["Naturalistic", "Contemporary", "Formal"]
     )
 
     st.header("Density")
@@ -1288,14 +1257,13 @@ with st.sidebar:
     st.header("Scale")
     st.caption(f"Bed limit: {MAX_BED_FEET} ft max length or width")
     st.caption(f"Active bed: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
-    st.caption(f"Grid: 1 square = {GRID_SPACING_FEET} ft")
 
 # -----------------------------
 # Active plant database + image prep
 # -----------------------------
 
 runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
-selected_plants = filter_plants(runtime_plants, state, climate, sun, water, style)
+selected_plants = filter_plants(runtime_plants, state, climate, selected_usda_zones, sun, water)
 # Manual include / exclude controls
 all_matching_names = [p["name"] for p in selected_plants]
 with st.sidebar:
@@ -1303,39 +1271,19 @@ with st.sidebar:
     include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
-    st.header("Plant Category Percentages")
-    anchor_pct = st.slider("Anchor", 0, 100, 24)
-    mid_pct = st.slider("Mid Layer", 0, 100, 30)
-    accent_pct = st.slider("Accent Layer", 0, 100, 20)
-    ground_pct = st.slider("Groundcover", 0, 100, 26)
-    total_pct = anchor_pct + mid_pct + accent_pct + ground_pct
+    st.header("Role Percentages")
+    st.caption("These sliders use the exact Role values from the plant database.")
+    role_percentages = {}
+    for role in ROLE_ORDER:
+        role_percentages[role] = st.slider(role, 0, 100, default_role_percentage(role), key=f"role_pct_{role}")
+
+    total_pct = sum(role_percentages.values())
     if total_pct == 0:
         total_pct = 1
-    hierarchy_split = {
-        "Anchor": anchor_pct / total_pct,
-        "Mid Layer": mid_pct / total_pct,
-        "Accent Layer": accent_pct / total_pct,
-        "Groundcover": ground_pct / total_pct,
+    role_split = {
+        role: value / total_pct
+        for role, value in role_percentages.items()
     }
-
-    st.header("Request a Plant")
-    requested_plant = st.text_input("Plant you want added")
-    if st.button("Submit Plant Request"):
-        if requested_plant.strip():
-            log_event(
-                st.session_state.get("user_email"),
-                "plant_requested",
-                state=state,
-                zone=zone_microclimate,
-                climate=climate,
-                sun_exposure=sun,
-                water_needs=water,
-                design_style=style,
-                density=density,
-                notes=requested_plant.strip()
-            )
-            st.success("Plant request submitted.")
-
 forced = [p for p in runtime_plants if p["name"] in include_names]
 selected_plants = [p for p in selected_plants if p["name"] not in exclude_names]
 for p in forced:
@@ -1357,7 +1305,8 @@ left, right = st.columns([2, 1])
 with left:
     if input_method == "Draw Boundary":
         st.subheader("1. Draw Planting Boundary")
-        st.caption(f"Left click to add boundary points. Close the polygon by clicking near the first point or double-clicking the final point. Each grid square represents {GRID_SPACING_FEET} ft.")
+        st.caption("TIP: Left click to add boundary points. Right click to end nearest the origin point and complete the boundary.")
+        st.caption('Drawing canvas: 50\'-0" horizontal × 50\'-0" vertical.')
 
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 0, 0)",
@@ -1437,10 +1386,27 @@ with left:
                     st.info("Add at least 3 points before generating the planting layout.")
 
 with right:
+    st.subheader("Request a Plant")
+    requested_plant = st.text_input("Plant you want added")
+    if st.button("Submit Plant Request"):
+        if requested_plant.strip():
+            log_event(
+                st.session_state.get("user_email"),
+                "plant_requested",
+                state=state,
+                zone=", ".join([f"USDA {z}" for z in selected_usda_zones]),
+                climate=climate,
+                sun_exposure=sun,
+                water_needs=water,
+                density=density,
+                notes=requested_plant.strip()
+            )
+            st.success("Plant request submitted.")
+
     st.subheader("2. Selected Plant Palette")
 
     if len(selected_plants) == 0:
-        st.warning("No plants match these parameters yet. Try adjusting sun exposure, water needs, or style.")
+        st.warning("No plants match these parameters yet. Try adjusting USDA hardiness, sun exposure, or water needs.")
     else:
         for plant in selected_plants:
             canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
@@ -1533,13 +1499,13 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
-                    placed_instances, actual_coverage = pack_by_hierarchy(
+                    placed_instances, actual_coverage = pack_by_role(
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        hierarchy_split=hierarchy_split
+                        role_split=role_split
                     )
 
                     if len(placed_instances) == 0:
@@ -1551,12 +1517,11 @@ if generate:
                             st.session_state.get("user_email"),
                             "generation_run",
                             state=state,
-                            zone=zone_microclimate,
+                            zone=", ".join([f"USDA {z}" for z in selected_usda_zones]),
                             climate=climate,
                             sun_exposure=sun,
                             water_needs=water,
-                            design_style=style,
-                            density=density,
+                                        density=density,
                             plants_generated_count=len(placed_instances)
                         )
 
@@ -1728,14 +1693,10 @@ if generate:
                                 mime="image/jpeg"
                             )
 
-                        st.subheader("Plant Count")
-
                         counts = {}
                         for item in placed_instances:
                             plant = item["plant"]
                             counts[plant["name"]] = counts.get(plant["name"], 0) + 1
-
-                        st.write(counts)
 
                         st.subheader("Plant Schedule")
 
@@ -1745,19 +1706,20 @@ if generate:
 
                             schedule.append({
                                 "Code": plant["code"],
+                                "Count": count,
                                 "Botanical Name": plant["name"],
                                 "Common Name": plant["common_name"],
                                 "Form": plant["form"],
                                 "Role": plant["role"],
-                                "Style": ", ".join(plant["style"]),
                                 "Texture": plant["texture"],
                                 "Color Tone": plant["color_tone"],
                                 "Visual Weight": plant["visual_weight"],
                                 "Spread Ft": plant["spread_ft"],
                                 "Height Ft": plant["height_ft"],
-                                "Count": count,
                                 "State": state,
                                 "Climate": ", ".join(plant["climate"]),
+                                "USDA Min": plant["usda_min"],
+                                "USDA Max": plant["usda_max"],
                                 "Sun": ", ".join(plant["sun"]),
                                 "Water": ", ".join(plant["water"]),
                                 "Seasonality": plant["seasonality"],
@@ -1780,4 +1742,6 @@ if generate:
     except Exception as e:
         st.error("The app crashed while generating the layout.")
         st.exception(e)
+
+
 
