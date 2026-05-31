@@ -26,7 +26,8 @@ supabase = get_supabase_client()
 
 def log_event(email, event_type, **kwargs):
     if supabase is None or not email:
-        return
+        return False, "Supabase is not connected or user email is missing."
+
     event = {
         "email": email,
         "event_type": event_type,
@@ -41,10 +42,46 @@ def log_event(email, event_type, **kwargs):
         "export_type": kwargs.get("export_type"),
         "notes": kwargs.get("notes"),
     }
+
     try:
         supabase.table("events").insert(event).execute()
-    except Exception:
-        pass
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def log_plant_request(email, requested_plant, **kwargs):
+    requested_plant = (requested_plant or "").strip()
+    if not requested_plant:
+        return False, "Plant request is empty."
+
+    ok, err = log_event(
+        email,
+        "plant_requested",
+        notes=requested_plant,
+        **kwargs
+    )
+
+    # Optional dedicated table. If you create a plant_requests table in Supabase,
+    # this will also save requests there. If that table does not exist, the
+    # events table above is still the primary tracking location.
+    if supabase is not None and email:
+        try:
+            supabase.table("plant_requests").insert({
+                "email": email,
+                "requested_plant": requested_plant,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "state": kwargs.get("state"),
+                "zone": kwargs.get("zone"),
+                "climate": kwargs.get("climate"),
+                "sun_exposure": kwargs.get("sun_exposure"),
+                "water_needs": kwargs.get("water_needs"),
+                "density": kwargs.get("density"),
+            }).execute()
+        except Exception:
+            pass
+
+    return ok, err
 
 def get_or_create_user(email):
     email = email.strip().lower()
@@ -98,8 +135,8 @@ def beta_email_gate():
     if st.session_state.user_email:
         return True
 
-    st.title("YODRA")
-    st.markdown("### Start your private beta session")
+    st.title("Native Plant Layout Engine by The Landscape Library")
+    st.markdown("### Enter your email to begin generating planting layouts.")
     email = st.text_input("Enter your email to continue")
     if st.button("Continue"):
         if "@" not in email or "." not in email:
@@ -181,12 +218,12 @@ except Exception:
     pass
 
 st.set_page_config(
-    page_title="California Native Planting Design Studio",
+    page_title="Native Plant Layout Engine",
     layout="wide"
 )
 
-st.title("California Native Planting Design Studio")
-st.caption("A naturalistic, restorative planting generator for California native landscape studies, plant palettes, plan layouts, elevation views, and schedules.")
+st.title("Native Plant Layout Engine")
+st.caption("A California native planting layout generator for naturalistic and restorative landscape studies, plant palettes, plan views, elevation views, and schedules.")
 
 # -----------------------------
 # Canvas + Scale settings
@@ -895,7 +932,7 @@ def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_p
     return placed_layer, placed_area
 
 
-def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None, role_zones=None):
+def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None):
     boundary_area = poly.area
 
     if boundary_area <= 0:
@@ -917,24 +954,16 @@ def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_t
             for role in active_roles
         }
 
-    clean_role_zones = valid_role_zones_for_boundary(role_zones or {}, poly)
-
     for role in active_roles:
         role_plants = [p for p in plant_pool if p["role"] == role]
 
         if not role_plants:
             continue
 
-        # Optional role zones: if a user draws a zone for this Role, pack only inside
-        # that clipped zone. If no zone exists for the Role, use the full main boundary.
-        active_poly = clean_role_zones.get(role, poly)
-        if active_poly.is_empty or active_poly.area <= 0:
-            continue
-
         layer_target_area = total_target_area * role_split.get(role, 0)
 
         placed_layer, placed_area = pack_layer(
-            poly=active_poly,
+            poly=poly,
             plants=role_plants,
             target_area=layer_target_area,
             spacing_factor=spacing_factor,
@@ -1448,76 +1477,27 @@ with left:
                 if len(st.session_state[trace_key]) < 3:
                     st.info("Add at least 3 points before generating the planting layout.")
 
-# -----------------------------
-# Optional role zones
-# -----------------------------
-
-if "role_zones" not in st.session_state:
-    st.session_state.role_zones = {}
-
-with left:
-    st.subheader("2. Optional Role Zones")
-    st.caption("Optional: draw smaller zones inside the main boundary to control where specific plant Roles can be placed. If no zone is drawn for a Role, that Role uses the full planting boundary.")
-
-    enable_role_zones = st.checkbox("Use optional role zones", value=False)
-
-    if enable_role_zones:
-        selected_zone_role = st.selectbox("Select Role zone to draw", ROLE_ORDER, key="selected_zone_role")
-        st.caption(f"Draw one polygon for the {selected_zone_role} zone, then click Save / Update Role Zone.")
-
-        role_zone_canvas = st_canvas(
-            fill_color="rgba(0, 0, 0, 0)",
-            stroke_width=2,
-            stroke_color="#555555",
-            background_color="#fbfbf7",
-            height=canvas_height,
-            width=canvas_width,
-            drawing_mode="polygon",
-            key=f"role_zone_canvas_{selected_zone_role}",
-        )
-
-        z1, z2 = st.columns(2)
-        with z1:
-            if st.button("Save / Update Role Zone"):
-                zone_points = get_polygon_from_canvas(role_zone_canvas.json_data if role_zone_canvas is not None else None)
-                if zone_points is None:
-                    st.warning("Draw a closed polygon before saving this role zone.")
-                else:
-                    st.session_state.role_zones[selected_zone_role] = zone_points
-                    st.success(f"Saved {selected_zone_role} zone.")
-        with z2:
-            if st.button("Remove This Role Zone"):
-                st.session_state.role_zones.pop(selected_zone_role, None)
-                st.success(f"Removed {selected_zone_role} zone.")
-
-        if st.session_state.role_zones:
-            saved_zone_labels = ", ".join(sorted(st.session_state.role_zones.keys()))
-            st.info(f"Saved role zones: {saved_zone_labels}")
-            if st.button("Clear All Role Zones"):
-                st.session_state.role_zones = {}
-                st.success("All role zones cleared.")
-    else:
-        st.session_state.active_role_zones_enabled = False
-
-active_role_zones = st.session_state.role_zones if enable_role_zones else {}
-
 with right:
     st.subheader("Request a Plant")
     requested_plant = st.text_input("Plant you want added")
     if st.button("Submit Plant Request"):
         if requested_plant.strip():
-            log_event(
+            ok, error_message = log_plant_request(
                 st.session_state.get("user_email"),
-                "plant_requested",
+                requested_plant.strip(),
                 state=state,
                 zone=", ".join([f"USDA {z}" for z in selected_usda_zones]),
                 climate=climate,
                 sun_exposure=sun,
                 water_needs=water,
                 density=density,
-                notes=requested_plant.strip()
             )
-            st.success("Plant request submitted.")
+            if ok:
+                st.success("Plant request submitted. It was saved to Supabase events as event_type='plant_requested'.")
+            else:
+                st.error(f"Plant request was not saved: {error_message}")
+        else:
+            st.warning("Enter a plant name before submitting.")
 
     st.subheader("3. Selected Plant Palette")
 
@@ -1618,8 +1598,7 @@ if generate:
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        role_split=role_split,
-                        role_zones=active_role_zones
+                        role_split=role_split
                     )
 
                     if len(placed_instances) == 0:
@@ -1648,14 +1627,6 @@ if generate:
 
                         xs, ys = zip(*(points + [points[0]]))
                         ax.plot(xs, ys, linewidth=2, zorder=3)
-
-                        clean_role_zones = valid_role_zones_for_boundary(active_role_zones, poly)
-                        for role, zone_geom in clean_role_zones.items():
-                            zone_points = polygon_points_from_geometry(zone_geom)
-                            if len(zone_points) >= 3:
-                                zx, zy = zip(*(zone_points + [zone_points[0]]))
-                                ax.plot(zx, zy, linewidth=1.2, linestyle="--", alpha=0.65, zorder=3)
-                                ax.text(zone_points[0][0], zone_points[0][1], f"{role} zone", fontsize=8, alpha=0.7, zorder=6)
 
                         draw_grid(ax, canvas_width, canvas_height, grid_spacing_units)
 
@@ -1720,8 +1691,8 @@ if generate:
                         st.pyplot(fig)
 
                         plan_png = fig_to_png_bytes(fig)
-                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit, role_zones={role: polygon_points_from_geometry(geom) for role, geom in clean_role_zones.items()})
-                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones={role: polygon_points_from_geometry(geom) for role, geom in clean_role_zones.items()})
+                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit)
+                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit)
 
                         d1, d2, d3 = st.columns(3)
                         with d1:
