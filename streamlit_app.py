@@ -166,7 +166,6 @@ beta_email_gate()
 
 import random
 import math
-import time
 import os
 import html
 import base64
@@ -261,31 +260,11 @@ SPACING_BY_DENSITY = {
 }
 
 MAX_PLANTS_BY_DENSITY = {
-    "Low": 120,
-    "Moderate": 170,
-    "Dense": 230,
-    "Very Dense": 300
+    "Low": 180,
+    "Moderate": 260,
+    "Dense": 350,
+    "Very Dense": 500
 }
-
-# -----------------------------
-# Generation guardrails
-# -----------------------------
-# These prevent Streamlit from sitting on Running when the layout becomes
-# over-constrained by density, large plant spreads, or grouped placement.
-GENERATION_TIMEOUT_SECONDS = 18
-MAX_LAYER_GROUP_ATTEMPTS = 320
-MAX_GROUP_PLANT_ATTEMPTS_PER_PLANT = 70
-MAX_GROUP_CENTER_ATTEMPTS = 120
-MAX_RANDOM_POINT_ATTEMPTS = 80
-MAX_CONSECUTIVE_GROUP_FAILURES = 80
-
-# Absolute spacing rule: no plant circles may overlap.
-# If the engine cannot hit the requested coverage without overlap, it should
-# generate fewer plants rather than force circles into the plan.
-MIN_CLEARANCE_FEET = 0.75
-
-def generation_timed_out(deadline):
-    return deadline is not None and time.monotonic() > deadline
 
 # Placeholder used only while the plant database is being defined.
 # Runtime radii are recalculated after the active bed scale is known.
@@ -826,7 +805,7 @@ PLANTS = [
 
 
 
-ROLE_ORDER = ["Canopy", "Structure", "Matrix", "Accent"]
+ROLE_ORDER = sorted({plant["role"] for plant in PLANTS})
 
 DEFAULT_ROLE_COVERAGE_PERCENTAGES = {
     "Canopy": 12,
@@ -888,25 +867,21 @@ def circle_inside(poly, x, y, r):
     return poly.contains(Point(x, y).buffer(r))
 
 
-def circles_overlap(x, y, r, placed, spacing_factor=1.0, plant=None, clearance_units=0):
-    """Return True when the proposed circle conflicts with any existing circle.
-
-    This is intentionally strict. Earlier versions allowed canopy/underplanting
-    exceptions or spacing factors below 1.0, which could create visible overlaps.
-    For plan clarity, no drawn circles are allowed to overlap. If the requested
-    density cannot be reached, the generator stops cleanly with fewer plants.
-    """
+def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
     for p in placed:
+        existing_plant = p["plant"]
+
+        existing_allows_underplanting = existing_plant.get("allows_underplanting", False)
+        current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False)
+
+        if existing_allows_underplanting and not current_allows_underplanting:
+            continue
+
+        if current_allows_underplanting and not existing_allows_underplanting:
+            continue
+
         distance = math.dist((x, y), (p["x"], p["y"]))
-
-        # Absolute no-overlap threshold.
-        hard_min_distance = r + p["radius"] + clearance_units
-
-        # Optional design spacing threshold. This can be larger than the hard
-        # no-overlap rule, but never smaller.
-        design_min_distance = (r + p["radius"]) * max(spacing_factor, 1.0)
-
-        min_distance = max(hard_min_distance, design_min_distance)
+        min_distance = (r + p["radius"]) * spacing_factor
 
         if distance < min_distance:
             return True
@@ -922,363 +897,50 @@ def weighted_choice(plants):
     return random.choices(plants, weights=weights, k=1)[0]
 
 
-def safe_int(value, fallback):
-    try:
-        if value is None or value == "":
-            return fallback
-        return int(float(value))
-    except Exception:
-        return fallback
-
-
-def safe_float(value, fallback):
-    try:
-        if value is None or value == "":
-            return fallback
-        return float(value)
-    except Exception:
-        return fallback
-
-
-ROLE_BEHAVIOR_DEFAULTS = {
-    "Canopy": {
-        "group_min": 1,
-        "group_max": 1,
-        "spacing_min_ft": 15,
-        "spacing_max_ft": 30,
-        "edge_preference": "Back",
-    },
-    "Structure": {
-        "group_min": 1,
-        "group_max": 3,
-        "spacing_min_ft": 6,
-        "spacing_max_ft": 12,
-        "edge_preference": "Edge",
-    },
-    "Matrix": {
-        "group_min": 5,
-        "group_max": 15,
-        "spacing_min_ft": 2,
-        "spacing_max_ft": 5,
-        "edge_preference": "Any",
-    },
-    "Accent": {
-        "group_min": 3,
-        "group_max": 7,
-        "spacing_min_ft": 2,
-        "spacing_max_ft": 5,
-        "edge_preference": "Interior",
-    },
-}
-
-
-def get_plant_behavior(plant, grouping_scale="Balanced", spacing_character="Balanced", composition_style="Naturalistic Drift", deadline=None):
-    """Infer placement behavior from Role.
-
-    This version does not require a Placement Pattern column.
-    If future plant data includes group_min, group_max, spacing_min_ft,
-    spacing_max_ft, or edge_preference, those values are respected.
-    Otherwise the defaults are inferred from Role.
-    """
-    role = plant.get("role", "Matrix")
-    defaults = ROLE_BEHAVIOR_DEFAULTS.get(role, ROLE_BEHAVIOR_DEFAULTS["Matrix"])
-
-    group_min = safe_int(
-        plant.get("group_min", plant.get("Group Min")),
-        defaults["group_min"]
-    )
-    group_max = safe_int(
-        plant.get("group_max", plant.get("Group Max")),
-        defaults["group_max"]
-    )
-    spacing_min_ft = safe_float(
-        plant.get("spacing_min_ft", plant.get("Spacing Min Ft")),
-        defaults["spacing_min_ft"]
-    )
-    spacing_max_ft = safe_float(
-        plant.get("spacing_max_ft", plant.get("Spacing Max Ft")),
-        defaults["spacing_max_ft"]
-    )
-    edge_preference = plant.get(
-        "edge_preference",
-        plant.get("Edge Preference", defaults["edge_preference"])
-    )
-
-    # Global design controls modify behavior at runtime without requiring more columns.
-    if grouping_scale == "Small Groups":
-        group_min = max(1, int(round(group_min * 0.65)))
-        group_max = max(group_min, int(round(group_max * 0.75)))
-    elif grouping_scale == "Large Drifts":
-        if role in ["Matrix", "Accent"]:
-            group_min = max(1, int(round(group_min * 1.25)))
-            group_max = max(group_min, int(round(group_max * 1.60)))
-
-    if composition_style == "Contemporary Massing":
-        if role in ["Matrix", "Accent"]:
-            group_min = max(1, int(round(group_min * 1.10)))
-            group_max = max(group_min, int(round(group_max * 1.25)))
-        spacing_min_ft *= 0.95
-        spacing_max_ft *= 1.05
-    elif composition_style == "Restorative Meadow":
-        if role == "Matrix":
-            group_min = max(1, int(round(group_min * 1.35)))
-            group_max = max(group_min, int(round(group_max * 1.75)))
-        if role == "Accent":
-            group_min = max(1, int(round(group_min * 1.10)))
-            group_max = max(group_min, int(round(group_max * 1.25)))
-    elif composition_style == "Resort Native":
-        if role == "Structure":
-            group_min = max(1, group_min)
-            group_max = max(group_min, min(group_max + 1, 4))
-        if role == "Accent":
-            group_min = max(2, group_min)
-            group_max = max(group_min, group_max + 1)
-
-    if spacing_character == "Organic":
-        spacing_min_ft *= 0.85
-        spacing_max_ft *= 1.25
-    elif spacing_character == "Structured":
-        average_spacing = (spacing_min_ft + spacing_max_ft) / 2
-        spacing_min_ft = average_spacing * 0.90
-        spacing_max_ft = average_spacing * 1.10
-
-    if group_max < group_min:
-        group_max = group_min
-
-    return {
-        "group_min": group_min,
-        "group_max": group_max,
-        "spacing_min_ft": spacing_min_ft,
-        "spacing_max_ft": spacing_max_ft,
-        "edge_preference": edge_preference,
-    }
-
-
-def random_point_in_poly(poly, radius):
-    minx, miny, maxx, maxy = poly.bounds
-    if maxx - minx < radius * 2 or maxy - miny < radius * 2:
-        return None
-
-    for _ in range(MAX_RANDOM_POINT_ATTEMPTS):
-        x = random.uniform(minx + radius, maxx - radius)
-        y = random.uniform(miny + radius, maxy - radius)
-        if circle_inside(poly, x, y, radius):
-            return x, y
-
-    return None
-
-
-def random_group_center(poly, radius, edge_preference="Any"):
-    """Choose a group center with simple role-based spatial bias."""
-    minx, miny, maxx, maxy = poly.bounds
-    width = maxx - minx
-    height = maxy - miny
-
-    for _ in range(MAX_GROUP_CENTER_ATTEMPTS):
-        if edge_preference == "Back":
-            # In screen coordinates, smaller y reads as farther/back.
-            x = random.uniform(minx + radius, maxx - radius)
-            y = random.uniform(miny + radius, miny + max(height * 0.42, radius * 2))
-        elif edge_preference == "Edge":
-            side = random.choice(["left", "right", "top", "bottom"])
-            band_x = max(width * 0.22, radius * 2)
-            band_y = max(height * 0.22, radius * 2)
-            if side == "left":
-                x = random.uniform(minx + radius, min(minx + band_x, maxx - radius))
-                y = random.uniform(miny + radius, maxy - radius)
-            elif side == "right":
-                x = random.uniform(max(maxx - band_x, minx + radius), maxx - radius)
-                y = random.uniform(miny + radius, maxy - radius)
-            elif side == "top":
-                x = random.uniform(minx + radius, maxx - radius)
-                y = random.uniform(miny + radius, min(miny + band_y, maxy - radius))
-            else:
-                x = random.uniform(minx + radius, maxx - radius)
-                y = random.uniform(max(maxy - band_y, miny + radius), maxy - radius)
-        elif edge_preference == "Interior":
-            x = random.uniform(minx + width * 0.18, maxx - width * 0.18)
-            y = random.uniform(miny + height * 0.18, maxy - height * 0.18)
-        else:
-            x = random.uniform(minx + radius, maxx - radius)
-            y = random.uniform(miny + radius, maxy - radius)
-
-        if circle_inside(poly, x, y, radius):
-            return x, y
-
-    return random_point_in_poly(poly, radius)
-
-
-def make_candidate_near_group_center(center_x, center_y, group_radius_units, plant_radius):
-    angle = random.uniform(0, math.tau)
-    distance = random.uniform(0, group_radius_units)
-    x = center_x + math.cos(angle) * distance
-    y = center_y + math.sin(angle) * distance
-    return x, y
-
-
-def place_plant_group(poly, plant, target_group_count, spacing_factor, existing_placed, feet_per_canvas_unit, behavior, max_plants_total, deadline=None):
-    """Place a cohesive group of the same plant.
-
-    The group center is selected based on role behavior, then individual
-    plants are placed within a tighter cluster radius. This is the main change
-    that makes the output read as masses/drifts instead of scattered dots.
-    """
-    placed_group = []
-    placed_area = 0
-    group_id = f"{plant['code']}-{random.randint(1000, 9999)}"
-
-    plant_radius = plant["radius"]
-    spacing_min_units = behavior["spacing_min_ft"] / feet_per_canvas_unit
-    spacing_max_units = behavior["spacing_max_ft"] / feet_per_canvas_unit
-
-    # Keep groups cohesive. Matrix/accent groups should not sprawl across the whole bed.
-    group_radius_units = max(
-        plant_radius * 1.8,
-        spacing_max_units * max(1.15, math.sqrt(max(target_group_count, 1)) * 0.55)
-    )
-
-    center = random_group_center(poly, group_radius_units + plant_radius, behavior["edge_preference"])
-    if center is None:
-        return [], 0
-
-    center_x, center_y = center
-    attempts = 0
-    max_attempts = max(120, target_group_count * MAX_GROUP_PLANT_ATTEMPTS_PER_PLANT)
-
-    while (
-        len(placed_group) < target_group_count
-        and attempts < max_attempts
-        and len(existing_placed) + len(placed_group) < max_plants_total
-        and not generation_timed_out(deadline)
-    ):
-        attempts += 1
-
-        if len(placed_group) == 0:
-            x, y = center_x, center_y
-        else:
-            x, y = make_candidate_near_group_center(
-                center_x,
-                center_y,
-                group_radius_units,
-                plant_radius
-            )
-
-        if not circle_inside(poly, x, y, plant_radius):
-            continue
-
-        # Use plant-specific spacing where available, but never allow overlap.
-        plant_specific_factor = random.uniform(spacing_min_units, spacing_max_units) / max((plant_radius * 2), 0.01)
-        effective_spacing_factor = max(1.0, min(spacing_factor, plant_specific_factor))
-
-        clearance_units = MIN_CLEARANCE_FEET / feet_per_canvas_unit
-        all_existing = existing_placed + placed_group
-        if circles_overlap(
-            x,
-            y,
-            plant_radius,
-            all_existing,
-            effective_spacing_factor,
-            plant,
-            clearance_units=clearance_units
-        ):
-            continue
-
-        placed_group.append({
-            "x": x,
-            "y": y,
-            "radius": plant_radius,
-            "plant": plant,
-            "group_id": group_id
-        })
-        placed_area += math.pi * (plant_radius ** 2)
-
-    return placed_group, placed_area
-
-
-def pack_layer_by_groups(
-    poly,
-    plants,
-    target_area,
-    spacing_factor,
-    existing_placed,
-    max_plants_total,
-    feet_per_canvas_unit,
-    grouping_scale,
-    spacing_character,
-    composition_style,
-    deadline=None
-):
+def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total):
     if not plants:
         return [], 0
 
+    minx, miny, maxx, maxy = poly.bounds
     placed_layer = []
     placed_area = 0
     attempts = 0
-    max_attempts = MAX_LAYER_GROUP_ATTEMPTS
-    consecutive_failures = 0
+    max_attempts = 16000
 
     while (
         placed_area < target_area
         and attempts < max_attempts
-        and consecutive_failures < MAX_CONSECUTIVE_GROUP_FAILURES
         and len(existing_placed) + len(placed_layer) < max_plants_total
-        and not generation_timed_out(deadline)
     ):
         attempts += 1
+
         plant = weighted_choice(plants)
         if plant is None:
             break
 
-        behavior = get_plant_behavior(
-            plant,
-            grouping_scale=grouping_scale,
-            spacing_character=spacing_character,
-            composition_style=composition_style,
-            deadline=deadline
-        )
+        r = plant["radius"]
 
-        target_group_count = random.randint(behavior["group_min"], behavior["group_max"])
+        if maxx - minx < r * 2 or maxy - miny < r * 2:
+            break
 
-        # Specimen plants should stay singular regardless of density.
-        if plant.get("role") == "Canopy":
-            target_group_count = 1
+        x = random.uniform(minx + r, maxx - r)
+        y = random.uniform(miny + r, maxy - r)
 
-        placed_group, group_area = place_plant_group(
-            poly=poly,
-            plant=plant,
-            target_group_count=target_group_count,
-            spacing_factor=spacing_factor,
-            existing_placed=existing_placed + placed_layer,
-            feet_per_canvas_unit=feet_per_canvas_unit,
-            behavior=behavior,
-            max_plants_total=max_plants_total,
-            deadline=deadline
-        )
-
-        if not placed_group:
-            consecutive_failures += 1
+        if not circle_inside(poly, x, y, r):
             continue
 
-        consecutive_failures = 0
-        placed_layer.extend(placed_group)
-        placed_area += group_area
+        all_existing = existing_placed + placed_layer
+
+        if circles_overlap(x, y, r, all_existing, spacing_factor, plant):
+            continue
+
+        placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
+        placed_area += math.pi * (r ** 2)
 
     return placed_layer, placed_area
 
 
-def pack_by_role(
-    poly,
-    plant_pool,
-    target_coverage,
-    spacing_factor,
-    max_plants_total,
-    role_split=None,
-    feet_per_canvas_unit=1,
-    grouping_scale="Balanced",
-    spacing_character="Balanced",
-    composition_style="Naturalistic Drift",
-    deadline=None
-):
+def pack_by_role(poly, plant_pool, target_coverage, spacing_factor, max_plants_total, role_split=None):
     boundary_area = poly.area
 
     if boundary_area <= 0:
@@ -1288,9 +950,7 @@ def pack_by_role(
     all_placed = []
     total_placed_area = 0
 
-    design_role_order = ["Canopy", "Structure", "Matrix", "Accent"]
-    active_roles = [role for role in design_role_order if any(p["role"] == role for p in plant_pool)]
-    active_roles += [role for role in ROLE_ORDER if role not in active_roles and any(p["role"] == role for p in plant_pool)]
+    active_roles = [role for role in ROLE_ORDER if any(p["role"] == role for p in plant_pool)]
 
     if not active_roles:
         return [], 0
@@ -1302,10 +962,7 @@ def pack_by_role(
             for role in active_roles
         }
 
-    # Place in design hierarchy order and stop gracefully if the generation budget is exhausted.
     for role in active_roles:
-        if generation_timed_out(deadline):
-            break
         role_plants = [p for p in plant_pool if p["role"] == role]
 
         if not role_plants:
@@ -1313,25 +970,19 @@ def pack_by_role(
 
         layer_target_area = total_target_area * role_split.get(role, 0)
 
-        placed_layer, placed_area = pack_layer_by_groups(
+        placed_layer, placed_area = pack_layer(
             poly=poly,
             plants=role_plants,
             target_area=layer_target_area,
             spacing_factor=spacing_factor,
             existing_placed=all_placed,
-            max_plants_total=max_plants_total,
-            feet_per_canvas_unit=feet_per_canvas_unit,
-            grouping_scale=grouping_scale,
-            spacing_character=spacing_character,
-            composition_style=composition_style,
-            deadline=deadline
+            max_plants_total=max_plants_total
         )
 
         all_placed.extend(placed_layer)
         total_placed_area += placed_area
 
     return all_placed, total_placed_area / boundary_area
-
 
 def sun_is_compatible(selected_sun, plant_sun_options):
     sun_compatibility = {
@@ -1561,6 +1212,17 @@ def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_
         svg.write(f'<polygon points="{zone_path}" fill="none" stroke="black" stroke-width="1" stroke-dasharray="4 4" opacity="0.45"/>\n')
         svg.write(f'<text x="{first_x:.2f}" y="{first_y:.2f}" font-family="Arial" font-size="10" opacity="0.65">{escape_svg_text(role)} zone</text>\n')
 
+    for role, zone_points in (role_zones or {}).items():
+        if not zone_points or len(zone_points) < 3:
+            continue
+        closed_zone = zone_points + [zone_points[0]]
+        layer_name = f"ROLE_ZONE_{role.upper().replace(' ', '_')}"
+        for i in range(len(closed_zone) - 1):
+            x1, y1 = closed_zone[i]
+            x2, y2 = closed_zone[i + 1]
+            dxf.write("0\nLINE\n8\n" + layer_name + "\n")
+            dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
+            dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
 
     for item in placed_instances:
         plant = item["plant"]
@@ -1709,41 +1371,18 @@ with st.sidebar:
     include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
-    st.header("Design Controls")
-    composition_style = st.selectbox(
-        "Composition Style",
-        [
-            "Naturalistic Drift",
-            "Resort Native",
-            "Restorative Meadow",
-            "Contemporary Massing",
-        ],
-        index=0
-    )
+    st.header("Role Percentages")
+    st.caption("These sliders use the exact Role values from the plant database.")
+    role_percentages = {}
+    for role in ROLE_ORDER:
+        role_percentages[role] = st.slider(role, 0, 100, default_role_percentage(role), key=f"role_pct_{role}")
 
-    grouping_scale = st.selectbox(
-        "Grouping Scale",
-        ["Small Groups", "Balanced", "Large Drifts"],
-        index=1
-    )
-
-    spacing_character = st.selectbox(
-        "Spacing Character",
-        ["Organic", "Balanced", "Structured"],
-        index=1
-    )
-
-    st.caption("Role behavior is inferred automatically: Canopy = specimen, Structure = anchor mass, Matrix = drift, Accent = accent pocket.")
-
-    active_role_defaults = {
-        role: default_role_percentage(role)
-        for role in ROLE_ORDER
-        if any(p["role"] == role for p in selected_plants)
-    }
-    total_pct = sum(active_role_defaults.values()) or 1
+    total_pct = sum(role_percentages.values())
+    if total_pct == 0:
+        total_pct = 1
     role_split = {
         role: value / total_pct
-        for role, value in active_role_defaults.items()
+        for role, value in role_percentages.items()
     }
 forced = [p for p in runtime_plants if p["name"] in include_names]
 selected_plants = [p for p in selected_plants if p["name"] not in exclude_names]
@@ -1862,7 +1501,7 @@ with right:
                 design_style="Native Plant Layout Engine",
             )
             if ok:
-                st.success("Plant request submitted. It was saved to Supabase events as event_type='plant_requested'.")
+                st.success("Plant request submitted.")
             else:
                 st.error(f"Plant request was not saved: {error_message}")
         else:
@@ -1931,10 +1570,7 @@ if generate:
             log_event(st.session_state.user_email, "paywall_shown")
             st.stop()
     try:
-        generation_deadline = time.monotonic() + GENERATION_TIMEOUT_SECONDS
-        status = st.empty()
         with st.spinner("Generating planting plan and elevation view..."):
-            status.info("Analyzing planting boundary...")
             if input_method == "Draw Boundary" and canvas_result is not None:
                 points = get_polygon_from_canvas(canvas_result.json_data)
             elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
@@ -1964,23 +1600,14 @@ if generate:
                     st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
 
                 else:
-                    status.info("Composing grouped planting layout...")
                     placed_instances, actual_coverage = pack_by_role(
                         poly=poly,
                         plant_pool=selected_plants,
                         target_coverage=target_coverage,
                         spacing_factor=spacing_factor,
                         max_plants_total=max_plants_total,
-                        role_split=role_split,
-                        feet_per_canvas_unit=feet_per_canvas_unit,
-                        grouping_scale=grouping_scale,
-                        spacing_character=spacing_character,
-                        composition_style=composition_style,
-                        deadline=generation_deadline
+                        role_split=role_split
                     )
-
-                    if generation_timed_out(generation_deadline):
-                        st.info("Generation reached the performance limit and returned the best layout it could complete. Try Moderate density or fewer large plants if the layout feels sparse.")
 
                     if len(placed_instances) == 0:
                         st.warning("No plants could fit inside the boundary. Try a larger area, lower density, or different plant parameters.")
@@ -1999,7 +1626,6 @@ if generate:
                             plants_generated_count=len(placed_instances)
                         )
 
-                        status.info("Drawing plan view...")
                         st.subheader("Plan View")
 
                         fig, ax = plt.subplots(figsize=(10, 10))
@@ -2101,12 +1727,9 @@ if generate:
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
                         st.caption(f"Actual generated coverage: {round(actual_coverage * 100)}%")
-                        if actual_coverage < target_coverage * 0.75:
-                            st.warning("YODRA generated a cleaner lower-count layout because the requested density could not be reached without overlapping plant circles.")
                         st.caption(f"Active bed scale: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
                         st.caption(f"Maximum plant instances capped at {max_plants_total} for app performance.")
 
-                        status.info("Building elevation study...")
                         st.subheader("Elevation View")
                         st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
 
@@ -2176,7 +1799,6 @@ if generate:
                             plant = item["plant"]
                             counts[plant["name"]] = counts.get(plant["name"], 0) + 1
 
-                        status.info("Preparing plant schedule...")
                         st.subheader("Plant Schedule")
 
                         schedule = []
@@ -2217,11 +1839,7 @@ if generate:
                             on_click=lambda: increment_export_count(st.session_state.get("user_email"))
                         )
                         log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
-                        status.success("Planting layout generated.")
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
         st.exception(e)
-
-
-
