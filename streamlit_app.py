@@ -37,7 +37,6 @@ def log_event(email, event_type, **kwargs):
         "climate": kwargs.get("climate"),
         "sun_exposure": kwargs.get("sun_exposure"),
         "water_needs": kwargs.get("water_needs"),
-        "density": kwargs.get("density"),
         "plants_generated_count": kwargs.get("plants_generated_count"),
         "export_type": kwargs.get("export_type"),
         "notes": kwargs.get("notes"),
@@ -76,8 +75,7 @@ def log_plant_request(email, requested_plant, **kwargs):
                 "climate": kwargs.get("climate"),
                 "sun_exposure": kwargs.get("sun_exposure"),
                 "water_needs": kwargs.get("water_needs"),
-                "density": kwargs.get("density"),
-            }).execute()
+                    }).execute()
         except Exception:
             pass
 
