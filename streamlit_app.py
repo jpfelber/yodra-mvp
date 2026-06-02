@@ -143,10 +143,27 @@ def beta_email_gate():
     if st.session_state.user_email:
         return True
 
-    st.title("Native Plant Layout Engine by The Landscape Library")
-    st.markdown("### Enter your email to begin generating planting layouts.")
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h1 style="margin:0;line-height:1.1;">Generate Planting Concepts in Minutes</h1>
+        <span style="
+            background:#f3f4f6;
+            border:1px solid #e5e7eb;
+            padding:3px 10px;
+            border-radius:999px;
+            font-size:12px;
+            font-weight:700;
+            letter-spacing:0.02em;
+        ">
+            Beta
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
+    st.caption("California Plant Database Available")
+    st.caption("Texas and Florida Coming Soon")
     email = st.text_input("Enter your email to continue")
-    if st.button("Continue"):
+    if st.button("Start Designing"):
         if "@" not in email or "." not in email:
             st.error("Please enter a valid email address.")
             st.stop()
@@ -226,12 +243,35 @@ except Exception:
     pass
 
 st.set_page_config(
-    page_title="Native Plant Layout Engine",
+    page_title="Generate Planting Concepts",
     layout="wide"
 )
 
-st.title("Native Plant Layout Engine")
-st.caption("A California native planting layout generator for naturalistic and restorative landscape studies, plant palettes, plan views, elevation views, and schedules.")
+title_col, badge_col = st.columns([8, 1])
+with title_col:
+    st.title("Generate Planting Concepts in Minutes")
+with badge_col:
+    st.markdown(
+        """
+        <div style="
+            margin-top:14px;
+            background:#f3f4f6;
+            border:1px solid #e5e7eb;
+            padding:4px 10px;
+            border-radius:999px;
+            text-align:center;
+            font-size:12px;
+            font-weight:700;
+            letter-spacing:0.02em;
+        ">
+            Beta
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.caption("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
+st.info("California Plant Database Available • Texas and Florida Coming Soon")
 
 # -----------------------------
 # Canvas + Scale settings
@@ -1487,7 +1527,7 @@ with st.sidebar:
 
     st.header("Site Parameters")
 
-    state = st.selectbox("State", ["California"])
+    state = st.selectbox("Plant Region", ["California"])
     climate = "All Compatible Communities"
 
     design_style = st.selectbox(
@@ -1655,26 +1695,43 @@ with left:
                     st.info("Add at least 3 points before generating the planting layout.")
 
 with right:
-    st.subheader("Request a Plant")
-    requested_plant = st.text_input("Plant you want added")
-    if st.button("Submit Plant Request"):
-        if requested_plant.strip():
+    st.subheader("Don't See Your Region?")
+    st.caption("Request the next region you'd like added.")
+
+    requested_region = st.selectbox(
+        "Region",
+        [
+            "Texas",
+            "Florida",
+            "Arizona",
+            "Pacific Northwest",
+            "Northeast",
+            "Midwest",
+            "Southeast",
+            "Mountain West",
+            "Other",
+        ],
+    )
+
+    requested_city = st.text_input("City")
+
+    if st.button("Submit"):
+        if requested_city.strip():
+            request_text = f"Region: {requested_region} | City: {requested_city.strip()}"
             ok, error_message = log_plant_request(
                 st.session_state.get("user_email"),
-                requested_plant.strip(),
-                state=state,
-                zone=", ".join([f"USDA {z}" for z in selected_usda_zones]),
+                request_text,
                 climate=climate,
                 sun_exposure=sun,
                 water_needs=water,
                 design_style=design_style,
             )
             if ok:
-                st.success("Plant request submitted.")
+                st.success("Region request submitted.")
             else:
-                st.error(f"Plant request was not saved: {error_message}")
+                st.error(f"Region request was not saved: {error_message}")
         else:
-            st.warning("Enter a plant name before submitting.")
+            st.warning("Enter a city before submitting.")
 
     st.subheader("3. Selected Plant Palette")
 
@@ -1986,7 +2043,7 @@ if generate:
                                 "Visual Weight": plant["visual_weight"],
                                 "Spread Ft": plant["spread_ft"],
                                 "Height Ft": plant["height_ft"],
-                                "State": state,
+                                "Plant Region": state,
                                 "Climate": ", ".join(plant["climate"]),
                                 "USDA Min": plant["usda_min"],
                                 "USDA Max": plant["usda_max"],
