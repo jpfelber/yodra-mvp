@@ -237,11 +237,6 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from shapely.geometry import Polygon, Point
 from streamlit_drawable_canvas import st_canvas
-try:
-    from streamlit_image_coordinates import streamlit_image_coordinates
-except Exception:
-    streamlit_image_coordinates = None
-
 # -----------------------------
 # Compatibility patch
 # -----------------------------
@@ -1641,6 +1636,30 @@ with st.sidebar:
         use_container_width=True
     )
 
+    feedback_text = st.text_area(
+        "Feedback",
+        placeholder="Share what worked, what felt confusing, or what you want improved.",
+        height=100
+    )
+
+    if st.button("Submit Feedback", use_container_width=True):
+        if feedback_text.strip():
+            ok, error_message = log_event(
+                st.session_state.get("user_email"),
+                "feedback_submitted",
+                climate=climate,
+                sun_exposure=sun,
+                water_needs=water,
+                design_style=design_style,
+                notes=feedback_text.strip()
+            )
+            if ok:
+                st.success("Feedback submitted.")
+            else:
+                st.error(f"Feedback was not saved: {error_message}")
+        else:
+            st.warning("Enter feedback before submitting.")
+
 role_split = None
 
 forced = [p for p in runtime_plants if p["name"] in include_names]
@@ -1681,70 +1700,22 @@ with left:
         )
     else:
         st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
-        st.caption("Click around the planting bedline in order. Use more points for curves. The final segment closes automatically between the last point and first point.")
+        st.caption("Use the polygon tool to trace the planting bedline directly over the uploaded JPEG. Right click near the first point to finish the boundary.")
 
         if uploaded_bed_image is None:
-            st.warning("Upload a JPEG image first, then click points around the actual bedline.")
+            st.warning("Upload a JPEG image first, then trace the actual bedline.")
             canvas_result = None
         else:
-            canvas_result = None
-
-            if streamlit_image_coordinates is None:
-                st.error("Missing package: streamlit-image-coordinates. Add streamlit-image-coordinates to requirements.txt, then redeploy.")
-            else:
-                trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-                last_click_key = f"last_click_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-
-                if trace_key not in st.session_state:
-                    st.session_state[trace_key] = []
-                if last_click_key not in st.session_state:
-                    st.session_state[last_click_key] = None
-
-                st.caption("Click points around the bedline in order. Use more points for curves. The final segment closes automatically between the last and first point.")
-
-                overlay_image = render_trace_overlay(
-                    background_image,
-                    st.session_state[trace_key],
-                    canvas_width,
-                    canvas_height
-                )
-
-                clicked = streamlit_image_coordinates(
-                    overlay_image,
-                    key=f"click_trace_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}",
-                    width=canvas_width
-                )
-
-                if clicked is not None and "x" in clicked and "y" in clicked:
-                    new_point = (int(clicked["x"]), int(clicked["y"]))
-
-                    if st.session_state[last_click_key] != new_point:
-                        existing_points = st.session_state[trace_key]
-
-                        # Prevent accidental double-click duplicates.
-                        if len(existing_points) == 0 or math.dist(existing_points[-1], new_point) > 4:
-                            existing_points.append(new_point)
-                            st.session_state[trace_key] = existing_points
-
-                        st.session_state[last_click_key] = new_point
-                        st.rerun()
-
-                b1, b2, b3 = st.columns(3)
-                with b1:
-                    if st.button("Undo Last Point") and len(st.session_state[trace_key]) > 0:
-                        st.session_state[trace_key] = st.session_state[trace_key][:-1]
-                        st.session_state[last_click_key] = None
-                        st.rerun()
-                with b2:
-                    if st.button("Clear Trace"):
-                        st.session_state[trace_key] = []
-                        st.session_state[last_click_key] = None
-                        st.rerun()
-                with b3:
-                    st.metric("Trace Points", len(st.session_state[trace_key]))
-
-                if len(st.session_state[trace_key]) < 3:
-                    st.info("Add at least 3 points before generating the planting layout.")
+            canvas_result = st_canvas(
+                fill_color="rgba(0, 0, 0, 0)",
+                stroke_width=3,
+                stroke_color="#ffffff",
+                background_image=background_image,
+                height=canvas_height,
+                width=canvas_width,
+                drawing_mode="polygon",
+                key=f"uploaded_boundary_canvas_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}",
+            )
 
 with right:
     st.subheader("Don't See Your Region?")
@@ -1800,11 +1771,8 @@ points_preview = None
 
 if input_method == "Draw Boundary" and canvas_result is not None:
     points_preview = get_polygon_from_canvas(canvas_result.json_data)
-elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-    trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-    points_preview = st.session_state.get(trace_key, [])
-    if len(points_preview) < 3:
-        points_preview = None
+elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None and canvas_result is not None:
+    points_preview = get_polygon_from_canvas(canvas_result.json_data)
 
 if points_preview is not None:
     preview_poly = Polygon(points_preview)
@@ -1844,11 +1812,8 @@ if generate:
         with st.spinner("Generating planting plan and elevation view..."):
             if input_method == "Draw Boundary" and canvas_result is not None:
                 points = get_polygon_from_canvas(canvas_result.json_data)
-            elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-                trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-                points = st.session_state.get(trace_key, [])
-                if len(points) < 3:
-                    points = None
+            elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None and canvas_result is not None:
+                points = get_polygon_from_canvas(canvas_result.json_data)
             else:
                 points = None
 
@@ -1979,21 +1944,24 @@ if generate:
                                 label="Download Plan PNG",
                                 data=plan_png,
                                 file_name="yodra-planting-plan.png",
-                                mime="image/png"
+                                mime="image/png",
+                                on_click="ignore"
                             )
                         with d2:
                             st.download_button(
                                 label="Download Plan SVG",
                                 data=plan_svg,
                                 file_name="yodra-planting-plan.svg",
-                                mime="image/svg+xml"
+                                mime="image/svg+xml",
+                                on_click="ignore"
                             )
                         with d3:
                             st.download_button(
                                 label="Download Plan DXF",
                                 data=plan_dxf,
                                 file_name="yodra-planting-plan.dxf",
-                                mime="application/dxf"
+                                mime="application/dxf",
+                                on_click="ignore"
                             )
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
@@ -2055,14 +2023,16 @@ if generate:
                                 label="Download Elevation PNG",
                                 data=elevation_png,
                                 file_name="yodra-planting-elevation.png",
-                                mime="image/png"
+                                mime="image/png",
+                                on_click="ignore"
                             )
                         with e2:
                             st.download_button(
                                 label="Download Elevation JPEG",
                                 data=elevation_jpeg,
                                 file_name="yodra-planting-elevation.jpg",
-                                mime="image/jpeg"
+                                mime="image/jpeg",
+                                on_click="ignore"
                             )
 
                         counts = {}
@@ -2108,7 +2078,7 @@ if generate:
                             data=csv_buffer,
                             file_name="yodra-plant-schedule.csv",
                             mime="text/csv",
-                            on_click=lambda: increment_export_count(st.session_state.get("user_email"))
+                            on_click="ignore"
                         )
                         log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
 
