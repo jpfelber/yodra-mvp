@@ -221,6 +221,7 @@ def beta_email_gate():
 
 beta_email_gate()
 
+TUTORIAL_URL = "https://youtu.be/mOuwuhSc2Gs"
 
 # -------------------------
 # YOUR APP BELOW
@@ -317,9 +318,6 @@ with badge_col:
 
 st.caption("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
 st.info("California Plant Database Available • Texas and Florida Coming Soon")
-
-TUTORIAL_URL = "https://youtu.be/mOuwuhSc2Gs"
-
 
 # -----------------------------
 # Canvas + Scale settings
@@ -1668,55 +1666,9 @@ left, right = st.columns([2, 1])
 
 with left:
     if input_method == "Draw Boundary":
-        st.markdown(
-            f"""
-            <div style="margin-bottom:18px;">
-                <h2 style="
-                    margin:0 0 10px 0;
-                    font-size:34px;
-                    line-height:1.15;
-                    color:#1f2937;
-                    font-weight:800;
-                ">
-                    1. Draw Planting Boundary
-                </h2>
-
-                <a href="{TUTORIAL_URL}" target="_blank" style="
-                    display:inline-flex;
-                    align-items:center;
-                    gap:8px;
-                    background:#fff7ed;
-                    color:#c2410c;
-                    border:1px solid #fed7aa;
-                    border-radius:999px;
-                    padding:8px 14px;
-                    margin:0 0 12px 0;
-                    font-size:15px;
-                    font-weight:800;
-                    text-decoration:none;
-                ">
-                    Watch Tutorial Here →
-                </a>
-
-                <div style="
-                    background:#fff7ed;
-                    border:1px solid #fed7aa;
-                    border-radius:14px;
-                    padding:14px 16px;
-                    color:#7c2d12;
-                    font-size:16px;
-                    line-height:1.5;
-                    max-width:980px;
-                ">
-                    <strong>TIP:</strong> Left click to add boundary points. Right click near the first point to finish the boundary.
-                    <div style="font-size:14px;color:#9a3412;margin-top:4px;">
-                        Drawing canvas: 50'-0&quot; horizontal × 50'-0&quot; vertical.
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.subheader("1. Draw Planting Boundary")
+        st.link_button("Watch Tutorial Here →", TUTORIAL_URL, use_container_width=False)
+        st.warning("TIP: Left click to add boundary points. Right click near the first point to finish the boundary. Drawing canvas: 50\'-0\" horizontal × 50\'-0\" vertical.")
 
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 0, 0)",
@@ -1729,53 +1681,9 @@ with left:
             key="draw_boundary_canvas",
         )
     else:
-        st.markdown(
-            f"""
-            <div style="margin-bottom:18px;">
-                <h2 style="
-                    margin:0 0 10px 0;
-                    font-size:34px;
-                    line-height:1.15;
-                    color:#1f2937;
-                    font-weight:800;
-                ">
-                    1. Upload Scaled Bed Image + Trace Bedline
-                </h2>
-
-                <a href="{TUTORIAL_URL}" target="_blank" style="
-                    display:inline-flex;
-                    align-items:center;
-                    gap:8px;
-                    background:#fff7ed;
-                    color:#c2410c;
-                    border:1px solid #fed7aa;
-                    border-radius:999px;
-                    padding:8px 14px;
-                    margin:0 0 12px 0;
-                    font-size:15px;
-                    font-weight:800;
-                    text-decoration:none;
-                ">
-                    Watch Tutorial Here →
-                </a>
-
-                <div style="
-                    background:#fff7ed;
-                    border:1px solid #fed7aa;
-                    border-radius:14px;
-                    padding:14px 16px;
-                    color:#7c2d12;
-                    font-size:16px;
-                    line-height:1.5;
-                    max-width:980px;
-                ">
-                    <strong>TIP:</strong> Click points around the planting bedline in order. Use more points for curves.
-                    The final segment closes automatically between the last point and first point.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
+        st.link_button("Watch Tutorial Here →", TUTORIAL_URL, use_container_width=False)
+        st.warning("TIP: Click points around the planting bedline in order. Use more points for curves. The final segment closes automatically between the last point and first point.")
 
         if uploaded_bed_image is None:
             st.warning("Upload a JPEG image first, then click points around the actual bedline.")
@@ -1793,8 +1701,6 @@ with left:
                     st.session_state[trace_key] = []
                 if last_click_key not in st.session_state:
                     st.session_state[last_click_key] = None
-
-                st.caption("Click points around the bedline in order. Use more points for curves. The final segment closes automatically between the last and first point.")
 
                 overlay_image = render_trace_overlay(
                     background_image,
