@@ -2003,21 +2003,24 @@ if generate:
                                 label="Download Plan PNG",
                                 data=plan_png,
                                 file_name="yodra-planting-plan.png",
-                                mime="image/png"
+                                mime="image/png",
+                                on_click="ignore"
                             )
                         with d2:
                             st.download_button(
                                 label="Download Plan SVG",
                                 data=plan_svg,
                                 file_name="yodra-planting-plan.svg",
-                                mime="image/svg+xml"
+                                mime="image/svg+xml",
+                                on_click="ignore"
                             )
                         with d3:
                             st.download_button(
                                 label="Download Plan DXF",
                                 data=plan_dxf,
                                 file_name="yodra-planting-plan.dxf",
-                                mime="application/dxf"
+                                mime="application/dxf",
+                                on_click="ignore"
                             )
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
@@ -2079,14 +2082,16 @@ if generate:
                                 label="Download Elevation PNG",
                                 data=elevation_png,
                                 file_name="yodra-planting-elevation.png",
-                                mime="image/png"
+                                mime="image/png",
+                                on_click="ignore"
                             )
                         with e2:
                             st.download_button(
                                 label="Download Elevation JPEG",
                                 data=elevation_jpeg,
                                 file_name="yodra-planting-elevation.jpg",
-                                mime="image/jpeg"
+                                mime="image/jpeg",
+                                on_click="ignore"
                             )
 
                         counts = {}
@@ -2132,9 +2137,10 @@ if generate:
                             data=csv_buffer,
                             file_name="yodra-plant-schedule.csv",
                             mime="text/csv",
-                            on_click=lambda: increment_export_count(st.session_state.get("user_email"))
+                            on_click="ignore"
                         )
-                        log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
+                        # Download buttons use on_click="ignore" so Streamlit does not rerun
+                        # and users keep their generated plan/elevation after exporting.
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
