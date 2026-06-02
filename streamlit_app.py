@@ -241,6 +241,7 @@ try:
     from streamlit_image_coordinates import streamlit_image_coordinates
 except Exception:
     streamlit_image_coordinates = None
+
 # -----------------------------
 # Compatibility patch
 # -----------------------------
@@ -316,6 +317,9 @@ with badge_col:
 
 st.caption("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
 st.info("California Plant Database Available • Texas and Florida Coming Soon")
+
+TUTORIAL_URL = "https://youtu.be/mOuwuhSc2Gs"
+
 
 # -----------------------------
 # Canvas + Scale settings
@@ -1640,30 +1644,6 @@ with st.sidebar:
         use_container_width=True
     )
 
-    feedback_text = st.text_area(
-        "Feedback",
-        placeholder="Share what worked, what felt confusing, or what you want improved.",
-        height=100
-    )
-
-    if st.button("Submit Feedback", use_container_width=True):
-        if feedback_text.strip():
-            ok, error_message = log_event(
-                st.session_state.get("user_email"),
-                "feedback_submitted",
-                climate=climate,
-                sun_exposure=sun,
-                water_needs=water,
-                design_style=design_style,
-                notes=feedback_text.strip()
-            )
-            if ok:
-                st.success("Feedback submitted.")
-            else:
-                st.error(f"Feedback was not saved: {error_message}")
-        else:
-            st.warning("Enter feedback before submitting.")
-
 role_split = None
 
 forced = [p for p in runtime_plants if p["name"] in include_names]
@@ -1688,9 +1668,55 @@ left, right = st.columns([2, 1])
 
 with left:
     if input_method == "Draw Boundary":
-        st.subheader("1. Draw Planting Boundary")
-        st.caption("TIP: Left click to add boundary points. Right click to end nearest the origin point and complete the boundary.")
-        st.caption('Drawing canvas: 50\'-0" horizontal × 50\'-0" vertical.')
+        st.markdown(
+            f"""
+            <div style="margin-bottom:18px;">
+                <h2 style="
+                    margin:0 0 10px 0;
+                    font-size:34px;
+                    line-height:1.15;
+                    color:#1f2937;
+                    font-weight:800;
+                ">
+                    1. Draw Planting Boundary
+                </h2>
+
+                <a href="{TUTORIAL_URL}" target="_blank" style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:8px;
+                    background:#fff7ed;
+                    color:#c2410c;
+                    border:1px solid #fed7aa;
+                    border-radius:999px;
+                    padding:8px 14px;
+                    margin:0 0 12px 0;
+                    font-size:15px;
+                    font-weight:800;
+                    text-decoration:none;
+                ">
+                    Watch Tutorial Here →
+                </a>
+
+                <div style="
+                    background:#fff7ed;
+                    border:1px solid #fed7aa;
+                    border-radius:14px;
+                    padding:14px 16px;
+                    color:#7c2d12;
+                    font-size:16px;
+                    line-height:1.5;
+                    max-width:980px;
+                ">
+                    <strong>TIP:</strong> Left click to add boundary points. Right click near the first point to finish the boundary.
+                    <div style="font-size:14px;color:#9a3412;margin-top:4px;">
+                        Drawing canvas: 50'-0&quot; horizontal × 50'-0&quot; vertical.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 0, 0)",
@@ -1703,8 +1729,53 @@ with left:
             key="draw_boundary_canvas",
         )
     else:
-        st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
-        st.caption("Click points around the planting bedline in order. Use more points for curves. The final segment closes automatically.")
+        st.markdown(
+            f"""
+            <div style="margin-bottom:18px;">
+                <h2 style="
+                    margin:0 0 10px 0;
+                    font-size:34px;
+                    line-height:1.15;
+                    color:#1f2937;
+                    font-weight:800;
+                ">
+                    1. Upload Scaled Bed Image + Trace Bedline
+                </h2>
+
+                <a href="{TUTORIAL_URL}" target="_blank" style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:8px;
+                    background:#fff7ed;
+                    color:#c2410c;
+                    border:1px solid #fed7aa;
+                    border-radius:999px;
+                    padding:8px 14px;
+                    margin:0 0 12px 0;
+                    font-size:15px;
+                    font-weight:800;
+                    text-decoration:none;
+                ">
+                    Watch Tutorial Here →
+                </a>
+
+                <div style="
+                    background:#fff7ed;
+                    border:1px solid #fed7aa;
+                    border-radius:14px;
+                    padding:14px 16px;
+                    color:#7c2d12;
+                    font-size:16px;
+                    line-height:1.5;
+                    max-width:980px;
+                ">
+                    <strong>TIP:</strong> Click points around the planting bedline in order. Use more points for curves.
+                    The final segment closes automatically between the last point and first point.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         if uploaded_bed_image is None:
             st.warning("Upload a JPEG image first, then click points around the actual bedline.")
@@ -1714,7 +1785,6 @@ with left:
 
             if streamlit_image_coordinates is None:
                 st.error("Missing package: streamlit-image-coordinates. Add streamlit-image-coordinates to requirements.txt, then redeploy.")
-                st.code("streamlit-image-coordinates", language="text")
             else:
                 trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
                 last_click_key = f"last_click_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
@@ -1723,6 +1793,8 @@ with left:
                     st.session_state[trace_key] = []
                 if last_click_key not in st.session_state:
                     st.session_state[last_click_key] = None
+
+                st.caption("Click points around the bedline in order. Use more points for curves. The final segment closes automatically between the last and first point.")
 
                 overlay_image = render_trace_overlay(
                     background_image,
@@ -2001,24 +2073,21 @@ if generate:
                                 label="Download Plan PNG",
                                 data=plan_png,
                                 file_name="yodra-planting-plan.png",
-                                mime="image/png",
-                                on_click="ignore"
+                                mime="image/png"
                             )
                         with d2:
                             st.download_button(
                                 label="Download Plan SVG",
                                 data=plan_svg,
                                 file_name="yodra-planting-plan.svg",
-                                mime="image/svg+xml",
-                                on_click="ignore"
+                                mime="image/svg+xml"
                             )
                         with d3:
                             st.download_button(
                                 label="Download Plan DXF",
                                 data=plan_dxf,
                                 file_name="yodra-planting-plan.dxf",
-                                mime="application/dxf",
-                                on_click="ignore"
+                                mime="application/dxf"
                             )
 
                         st.caption(f"Target coverage: {round(target_coverage * 100)}%")
@@ -2080,16 +2149,14 @@ if generate:
                                 label="Download Elevation PNG",
                                 data=elevation_png,
                                 file_name="yodra-planting-elevation.png",
-                                mime="image/png",
-                                on_click="ignore"
+                                mime="image/png"
                             )
                         with e2:
                             st.download_button(
                                 label="Download Elevation JPEG",
                                 data=elevation_jpeg,
                                 file_name="yodra-planting-elevation.jpg",
-                                mime="image/jpeg",
-                                on_click="ignore"
+                                mime="image/jpeg"
                             )
 
                         counts = {}
@@ -2135,13 +2202,9 @@ if generate:
                             data=csv_buffer,
                             file_name="yodra-plant-schedule.csv",
                             mime="text/csv",
-                            on_click="ignore"
+                            on_click=lambda: increment_export_count(st.session_state.get("user_email"))
                         )
-                        # Export downloads use on_click="ignore" so Streamlit does not rerun
-                        # and users do not lose their generated layout. Because this is
-                        # a frontend-only download, export clicks are intentionally not
-                        # logged here. This keeps Supabase cleaner and avoids noisy
-                        # schedule_export_ready rows.
+                        log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
