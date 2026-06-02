@@ -2137,7 +2137,11 @@ if generate:
                             mime="text/csv",
                             on_click="ignore"
                         )
-                        log_event(st.session_state.get("user_email"), "schedule_export_ready", export_type="csv")
+                        # Export downloads use on_click="ignore" so Streamlit does not rerun
+                        # and users do not lose their generated layout. Because this is
+                        # a frontend-only download, export clicks are intentionally not
+                        # logged here. This keeps Supabase cleaner and avoids noisy
+                        # schedule_export_ready rows.
 
     except Exception as e:
         st.error("The app crashed while generating the layout.")
