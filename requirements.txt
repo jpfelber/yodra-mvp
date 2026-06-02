@@ -4,3 +4,4 @@ shapely
 streamlit-drawable-canvas
 pillow
 supabase
+streamlit-image-coordinates
