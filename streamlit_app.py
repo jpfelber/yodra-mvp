@@ -91,6 +91,51 @@ def log_plant_request(email, requested_plant, **kwargs):
 
     return ok, err
 
+
+def log_region_request(email, requested_region, requested_city, **kwargs):
+    """Save a region request into the existing Supabase events table.
+
+    This uses event_type='region_requested' and stores the requested region/city
+    inside the existing notes column so no new Supabase columns are required.
+    """
+    requested_region = (requested_region or "").strip()
+    requested_city = (requested_city or "").strip()
+
+    if not requested_region:
+        return False, "Region request is empty."
+    if not requested_city:
+        return False, "City is empty."
+
+    notes = f"Requested Region: {requested_region} | City: {requested_city}"
+
+    ok, err = log_event(
+        email,
+        "region_requested",
+        notes=notes,
+        **kwargs
+    )
+
+    # Optional dedicated table. The events table above remains the primary save
+    # location. If region_requests does not exist, this silently falls back to events only.
+    if supabase is not None and email:
+        try:
+            supabase.table("region_requests").insert({
+                "email": email,
+                "requested_region": requested_region,
+                "requested_city": requested_city,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "climate": kwargs.get("climate"),
+                "sun_exposure": kwargs.get("sun_exposure"),
+                "water_needs": kwargs.get("water_needs"),
+                "design_style": kwargs.get("design_style"),
+                "notes": notes,
+            }).execute()
+        except Exception:
+            pass
+
+    return ok, err
+
+
 def get_or_create_user(email):
     email = email.strip().lower()
     if supabase is None:
@@ -1589,6 +1634,13 @@ with st.sidebar:
     include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
+    st.divider()
+    generate = st.button(
+        "Generate Planting Layout",
+        type="primary",
+        use_container_width=True
+    )
+
 role_split = None
 
 forced = [p for p in runtime_plants if p["name"] in include_names]
@@ -1698,29 +1750,22 @@ with right:
     st.subheader("Don't See Your Region?")
     st.caption("Request the next region you'd like added.")
 
-    requested_region = st.selectbox(
+    requested_region = st.text_input(
         "Region",
-        [
-            "Texas",
-            "Florida",
-            "Arizona",
-            "Pacific Northwest",
-            "Northeast",
-            "Midwest",
-            "Southeast",
-            "Mountain West",
-            "Other",
-        ],
+        placeholder="Example: Texas, Florida, Pacific Northwest"
     )
 
-    requested_city = st.text_input("City")
+    requested_city = st.text_input(
+        "City",
+        placeholder="Example: Austin"
+    )
 
     if st.button("Submit"):
-        if requested_city.strip():
-            request_text = f"Region: {requested_region} | City: {requested_city.strip()}"
-            ok, error_message = log_plant_request(
+        if requested_region.strip() and requested_city.strip():
+            ok, error_message = log_region_request(
                 st.session_state.get("user_email"),
-                request_text,
+                requested_region,
+                requested_city,
                 climate=climate,
                 sun_exposure=sun,
                 water_needs=water,
@@ -1730,6 +1775,8 @@ with right:
                 st.success("Region request submitted.")
             else:
                 st.error(f"Region request was not saved: {error_message}")
+        elif not requested_region.strip():
+            st.warning("Enter a region before submitting.")
         else:
             st.warning("Enter a city before submitting.")
 
@@ -1780,8 +1827,6 @@ if points_preview is not None:
         c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
         c3.metric("Approx. Length", f"{width_ft:,.0f} ft")
         c4.metric("Approx. Width", f"{depth_ft:,.0f} ft")
-
-generate = st.button("Generate Planting Layout", type="primary")
 
 # -----------------------------
 # Generate
