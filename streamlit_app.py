@@ -1642,6 +1642,30 @@ with st.sidebar:
         use_container_width=True
     )
 
+    feedback_text = st.text_area(
+        "Feedback",
+        placeholder="Share what worked, what felt confusing, or what you want improved.",
+        height=100
+    )
+
+    if st.button("Submit Feedback", use_container_width=True):
+        if feedback_text.strip():
+            ok, error_message = log_event(
+                st.session_state.get("user_email"),
+                "feedback_submitted",
+                climate=climate,
+                sun_exposure=sun,
+                water_needs=water,
+                design_style=design_style,
+                notes=feedback_text.strip()
+            )
+            if ok:
+                st.success("Feedback submitted.")
+            else:
+                st.error(f"Feedback was not saved: {error_message}")
+        else:
+            st.warning("Enter feedback before submitting.")
+
 role_split = None
 
 forced = [p for p in runtime_plants if p["name"] in include_names]
