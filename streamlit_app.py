@@ -293,28 +293,31 @@ st.set_page_config(
     layout="wide"
 )
 
-st.markdown(
-    """
-    <style>
-    div.st-key-generate_plant_design button {
-        background-color: #000000 !important;
-        color: #ffffff !important;
-        border: 1px solid #000000 !important;
-        font-weight: 700 !important;
-    }
-    div.st-key-generate_plant_design button p {
-        color: #ffffff !important;
-        font-weight: 700 !important;
-    }
-    div.st-key-generate_plant_design button:hover {
-        background-color: #111111 !important;
-        border-color: #111111 !important;
-        color: #ffffff !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+title_col, badge_col = st.columns([8, 1])
+with title_col:
+    st.title("Generate Planting Concepts in Minutes")
+with badge_col:
+    st.markdown(
+        """
+        <div style="
+            margin-top:14px;
+            background:#f3f4f6;
+            border:1px solid #e5e7eb;
+            padding:4px 10px;
+            border-radius:999px;
+            text-align:center;
+            font-size:12px;
+            font-weight:700;
+            letter-spacing:0.02em;
+        ">
+            Beta
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.caption("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
+st.info("California Plant Database Available • Texas and Florida Coming Soon")
 
 # -----------------------------
 # Canvas + Scale settings
@@ -323,7 +326,7 @@ st.markdown(
 MAX_CANVAS_WIDTH = 900
 MAX_CANVAS_HEIGHT = 600
 DEFAULT_BED_LENGTH_FEET = 50
-DEFAULT_BED_WIDTH_FEET = 50
+DEFAULT_BED_WIDTH_FEET = 30
 MAX_BED_FEET = 50
 
 GRID_SPACING_FEET = 5
@@ -1367,6 +1370,34 @@ def canvas_length_to_feet(length_canvas_units, feet_per_canvas_unit):
     return length_canvas_units * feet_per_canvas_unit
 
 
+def render_boundary_metrics(points_preview, feet_per_canvas_unit):
+    if points_preview is None:
+        return
+
+    preview_poly = Polygon(points_preview)
+
+    if not preview_poly.is_valid:
+        preview_poly = preview_poly.buffer(0)
+
+    if preview_poly.area <= 0:
+        return
+
+    area_sqft = canvas_area_to_sqft(preview_poly.area, feet_per_canvas_unit)
+    perimeter_ft = canvas_length_to_feet(preview_poly.length, feet_per_canvas_unit)
+    minx_preview, miny_preview, maxx_preview, maxy_preview = preview_poly.bounds
+
+    width_ft = canvas_length_to_feet(maxx_preview - minx_preview, feet_per_canvas_unit)
+    depth_ft = canvas_length_to_feet(maxy_preview - miny_preview, feet_per_canvas_unit)
+
+    st.subheader("Boundary Metrics")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Approx. Area", f"{area_sqft:,.0f} sq ft")
+    c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
+    c3.metric("Approx. Length", f"{width_ft:,.0f} ft")
+    c4.metric("Approx. Width", f"{depth_ft:,.0f} ft")
+
+
 def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
     x = 0
     while x <= canvas_width:
@@ -1527,14 +1558,6 @@ def plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones=None)
 with st.sidebar:
     st.markdown("### by The Landscape Library")
 
-    generate = st.button(
-        "Generate Plant Design",
-        use_container_width=True,
-        key="generate_plant_design"
-    )
-
-    st.divider()
-
     st.header("Input Method")
     input_method = st.radio(
         "Choose how to define the planting bed",
@@ -1641,6 +1664,11 @@ with st.sidebar:
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
     st.divider()
+    generate = st.button(
+        "Generate Planting Layout",
+        type="primary",
+        use_container_width=True
+    )
 
     feedback_text = st.text_area(
         "Feedback",
@@ -1692,7 +1720,10 @@ with left:
     if input_method == "Draw Boundary":
         st.subheader("1. Draw Planting Boundary")
         st.link_button("Watch Tutorial Here →", TUTORIAL_URL, use_container_width=False)
-        st.warning("TIP: Left click to add boundary points. Right click near the first point to finish the boundary. Drawing canvas: 50\'-0\" horizontal × 50\'-0\" vertical.")
+        st.markdown(
+            '<div style="background:#fff9db;border:1px solid #fff3bf;color:#7a5c00;padding:10px 12px;border-radius:6px;font-size:14px;line-height:1.35;margin:8px 0 12px 0;">TIP: Left click to add boundary points. Right click near the first point to finish the boundary. Drawing canvas: 50\'-0&quot; horizontal × 30\'-0&quot; vertical.</div>',
+            unsafe_allow_html=True
+        )
 
         canvas_result = st_canvas(
             fill_color="rgba(0, 0, 0, 0)",
@@ -1704,10 +1735,16 @@ with left:
             drawing_mode="polygon",
             key="draw_boundary_canvas",
         )
+
+        points_preview = get_polygon_from_canvas(canvas_result.json_data) if canvas_result is not None else None
+        render_boundary_metrics(points_preview, feet_per_canvas_unit)
     else:
         st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
         st.link_button("Watch Tutorial Here →", TUTORIAL_URL, use_container_width=False)
-        st.warning("TIP: Click points around the planting bedline in order. Use more points for curves. The final segment closes automatically between the last point and first point.")
+        st.markdown(
+            '<div style="background:#fff9db;border:1px solid #fff3bf;color:#7a5c00;padding:10px 12px;border-radius:6px;font-size:14px;line-height:1.35;margin:8px 0 12px 0;">TIP: Click points around the planting bedline in order. Use more points for curves. The final segment closes automatically between the last point and first point.</div>',
+            unsafe_allow_html=True
+        )
 
         if uploaded_bed_image is None:
             st.warning("Upload a JPEG image first, then click points around the actual bedline.")
@@ -1769,27 +1806,11 @@ with left:
 
                 if len(st.session_state[trace_key]) < 3:
                     st.info("Add at least 3 points before generating the planting layout.")
+                else:
+                    render_boundary_metrics(st.session_state[trace_key], feet_per_canvas_unit)
 
 with right:
-    st.markdown(
-        """
-        <div style="
-            background:#eef6ff;
-            border:1px solid #dbeafe;
-            color:#1f4e79;
-            padding:6px 10px;
-            border-radius:6px;
-            font-size:12px;
-            line-height:1.2;
-            margin-bottom:14px;
-        ">
-            California Plant Database Available • Texas and Florida Coming Soon
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.subheader("Don't See Your Region?")
+    st.markdown('<div style="font-size:20px;font-weight:700;margin:0 0 6px 0;">Don\'t See Your Region?</div>', unsafe_allow_html=True)
     st.caption("Request the next region you'd like added.")
 
     requested_region = st.text_input(
@@ -1822,53 +1843,17 @@ with right:
         else:
             st.warning("Enter a city before submitting.")
 
-    st.subheader("3. Selected Plant Palette")
+    st.markdown('<div style="font-size:20px;font-weight:700;margin:18px 0 10px 0;">Selected Plant Palette</div>', unsafe_allow_html=True)
 
     if len(selected_plants) == 0:
         st.warning("No plants match these parameters yet. Try adjusting design style, USDA hardiness, sun exposure, or water needs.")
     else:
         for plant in selected_plants:
             canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
-            st.write(f"**{plant['name']}**")
+            st.markdown(f'<div style="font-size:14px;font-weight:700;margin-top:8px;">{plant["name"]}</div>', unsafe_allow_html=True)
             st.caption(
                 f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | spread: {plant['spread_ft']} ft{canopy_note}"
             )
-
-# -----------------------------
-# Boundary metrics
-# -----------------------------
-
-points_preview = None
-
-if input_method == "Draw Boundary" and canvas_result is not None:
-    points_preview = get_polygon_from_canvas(canvas_result.json_data)
-elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-    trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-    points_preview = st.session_state.get(trace_key, [])
-    if len(points_preview) < 3:
-        points_preview = None
-
-if points_preview is not None:
-    preview_poly = Polygon(points_preview)
-
-    if not preview_poly.is_valid:
-        preview_poly = preview_poly.buffer(0)
-
-    if preview_poly.area > 0:
-        area_sqft = canvas_area_to_sqft(preview_poly.area, feet_per_canvas_unit)
-        perimeter_ft = canvas_length_to_feet(preview_poly.length, feet_per_canvas_unit)
-        minx_preview, miny_preview, maxx_preview, maxy_preview = preview_poly.bounds
-
-        width_ft = canvas_length_to_feet(maxx_preview - minx_preview, feet_per_canvas_unit)
-        depth_ft = canvas_length_to_feet(maxy_preview - miny_preview, feet_per_canvas_unit)
-
-        st.subheader("Boundary Metrics")
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Approx. Area", f"{area_sqft:,.0f} sq ft")
-        c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
-        c3.metric("Approx. Length", f"{width_ft:,.0f} ft")
-        c4.metric("Approx. Width", f"{depth_ft:,.0f} ft")
 
 # -----------------------------
 # Generate
@@ -2036,6 +2021,7 @@ if generate:
                             st.download_button(
                                 label="Download Plan DXF",
                                 data=plan_dxf,
+                                key="download_plan_dxf",
                                 file_name="yodra-planting-plan.dxf",
                                 mime="application/dxf",
                                 on_click="ignore"
@@ -2107,6 +2093,7 @@ if generate:
                             st.download_button(
                                 label="Download Elevation JPEG",
                                 data=elevation_jpeg,
+                                key="download_elevation_jpeg",
                                 file_name="yodra-planting-elevation.jpg",
                                 mime="image/jpeg",
                                 on_click="ignore"
@@ -2147,12 +2134,24 @@ if generate:
                             })
 
                         schedule_df = pd.DataFrame(schedule)
+                        schedule_df = schedule_df.drop(
+                            columns=[
+                                "Role",
+                                "Visual Weight",
+                                "Climate",
+                                "USDA Min",
+                                "USDA Max",
+                                "Style Fit",
+                            ],
+                            errors="ignore"
+                        )
                         st.dataframe(schedule_df, width="stretch")
 
                         csv_buffer = schedule_df.to_csv(index=False).encode("utf-8")
                         st.download_button(
-                            label="Download Plant Schedule CSV / Excel",
+                            label="Download Plant Schedule",
                             data=csv_buffer,
+                            key="download_plant_schedule",
                             file_name="yodra-plant-schedule.csv",
                             mime="text/csv",
                             on_click="ignore"
