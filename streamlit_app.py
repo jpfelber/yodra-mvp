@@ -293,31 +293,28 @@ st.set_page_config(
     layout="wide"
 )
 
-title_col, badge_col = st.columns([8, 1])
-with title_col:
-    st.title("Generate Planting Concepts in Minutes")
-with badge_col:
-    st.markdown(
-        """
-        <div style="
-            margin-top:14px;
-            background:#f3f4f6;
-            border:1px solid #e5e7eb;
-            padding:4px 10px;
-            border-radius:999px;
-            text-align:center;
-            font-size:12px;
-            font-weight:700;
-            letter-spacing:0.02em;
-        ">
-            Beta
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.caption("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
-st.info("California Plant Database Available • Texas and Florida Coming Soon")
+st.markdown(
+    """
+    <style>
+    div.st-key-generate_plant_design button {
+        background-color: #000000 !important;
+        color: #ffffff !important;
+        border: 1px solid #000000 !important;
+        font-weight: 700 !important;
+    }
+    div.st-key-generate_plant_design button p {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    div.st-key-generate_plant_design button:hover {
+        background-color: #111111 !important;
+        border-color: #111111 !important;
+        color: #ffffff !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # -----------------------------
 # Canvas + Scale settings
@@ -1530,6 +1527,14 @@ def plan_to_dxf(points, placed_instances, feet_per_canvas_unit, role_zones=None)
 with st.sidebar:
     st.markdown("### by The Landscape Library")
 
+    generate = st.button(
+        "Generate Plant Design",
+        use_container_width=True,
+        key="generate_plant_design"
+    )
+
+    st.divider()
+
     st.header("Input Method")
     input_method = st.radio(
         "Choose how to define the planting bed",
@@ -1636,11 +1641,6 @@ with st.sidebar:
     exclude_names = st.multiselect("Exclude plants", all_matching_names)
 
     st.divider()
-    generate = st.button(
-        "Generate Planting Layout",
-        type="primary",
-        use_container_width=True
-    )
 
     feedback_text = st.text_area(
         "Feedback",
@@ -1771,6 +1771,24 @@ with left:
                     st.info("Add at least 3 points before generating the planting layout.")
 
 with right:
+    st.markdown(
+        """
+        <div style="
+            background:#eef6ff;
+            border:1px solid #dbeafe;
+            color:#1f4e79;
+            padding:6px 10px;
+            border-radius:6px;
+            font-size:12px;
+            line-height:1.2;
+            margin-bottom:14px;
+        ">
+            California Plant Database Available • Texas and Florida Coming Soon
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.subheader("Don't See Your Region?")
     st.caption("Request the next region you'd like added.")
 
