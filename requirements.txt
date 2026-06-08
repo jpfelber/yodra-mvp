@@ -3,6 +3,7 @@ matplotlib
 shapely
 streamlit-drawable-canvas
 pillow
-ezdxf
-svgwrite
+supabase
 streamlit-image-coordinates
+pandas
+PyMuPDF
