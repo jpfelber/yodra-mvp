@@ -1,39 +1,9 @@
 import streamlit as st
-
-# -------------------------
-# PASSWORD PROTECTION
-# -------------------------
-
-PASSWORD = st.secrets["APP_PASSWORD"]
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if st.session_state.authenticated:
-        return True
-
-    st.title("YODRA")
-    st.markdown("### Private Beta Access")
-
-    password = st.text_input("Enter access password", type="password")
-
-    if st.button("Enter"):
-        if password == PASSWORD:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Incorrect password")
-
-    return False
-
-
-if not check_password():
-    st.stop()
-
-# -------------------------
-# YOUR APP BELOW
-# -------------------------
+from datetime import datetime, timezone
+try:
+    from supabase import create_client
+except Exception:
+    create_client = None
 
 import random
 import math
@@ -41,679 +11,272 @@ import os
 import html
 import base64
 from io import BytesIO, StringIO
+from copy import deepcopy
 
+import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from shapely.geometry import Polygon, Point
-from streamlit_drawable_canvas import st_canvas
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
 except Exception:
     streamlit_image_coordinates = None
 
-# -----------------------------
-# Compatibility patch
-# -----------------------------
-# streamlit-drawable-canvas still calls an older Streamlit helper named
-# st.image.image_to_url when using background_image. Newer Streamlit versions
-# removed that helper, which causes an AttributeError on image upload.
-# This patch restores the expected helper by converting the PIL background image
-# into a browser-safe base64 data URL.
-def _yodra_image_to_url(image, width=None, clamp=False, channels="RGB", output_format="PNG", image_id=None):
-    """Compatibility helper for streamlit-drawable-canvas background images.
+# Optional PDF support. Add PyMuPDF to requirements.txt for PDF uploads.
+try:
+    import fitz  # PyMuPDF
+except Exception:
+    fitz = None
 
-    Newer Streamlit versions removed st.image.image_to_url, but
-    streamlit-drawable-canvas still calls it. This replacement returns a
-    base64 PNG data URL that the canvas component can use as its background.
-    """
-    if image is None:
+# -------------------------
+# SUPABASE USER TRACKING
+# -------------------------
+
+FREE_GENERATION_LIMIT = 999
+
+def get_supabase_client():
+    if create_client is None:
         return None
+    url = st.secrets.get("SUPABASE_URL", "")
+    key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not url or not key:
+        return None
+    return create_client(url, key)
 
-    if isinstance(image, str):
-        return image
+supabase = get_supabase_client()
 
-    if not isinstance(image, Image.Image):
-        image = Image.fromarray(image)
+def log_event(email, event_type, **kwargs):
+    if supabase is None or not email:
+        return False, "Supabase is not connected or user email is missing."
+    event = {
+        "email": email,
+        "event_type": event_type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "climate": kwargs.get("climate"),
+        "sun_exposure": kwargs.get("sun_exposure"),
+        "water_needs": kwargs.get("water_needs"),
+        "design_style": kwargs.get("design_style"),
+        "export_type": kwargs.get("export_type"),
+        "notes": kwargs.get("notes"),
+    }
+    event = {k: v for k, v in event.items() if v is not None}
+    try:
+        supabase.table("events").insert(event).execute()
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
-    if image.mode not in ("RGB", "RGBA"):
-        image = image.convert("RGB")
+def log_region_request(email, requested_region, requested_city, **kwargs):
+    requested_region = (requested_region or "").strip()
+    requested_city = (requested_city or "").strip()
+    if not requested_region:
+        return False, "Region request is empty."
+    if not requested_city:
+        return False, "City is empty."
+    notes = f"Requested Region: {requested_region} | City: {requested_city}"
+    ok, err = log_event(email, "region_requested", notes=notes, **kwargs)
+    if supabase is not None and email:
+        try:
+            supabase.table("region_requests").insert({
+                "email": email,
+                "requested_region": requested_region,
+                "requested_city": requested_city,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "design_style": kwargs.get("design_style"),
+                "notes": notes,
+            }).execute()
+        except Exception:
+            pass
+    return ok, err
 
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    return f"data:image/png;base64,{encoded}"
+def get_or_create_user(email):
+    email = email.strip().lower()
+    if supabase is None:
+        return {"email": email, "paid_status": False, "total_generations": 0, "total_exports": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    result = supabase.table("users").select("*").eq("email", email).execute()
+    if result.data:
+        user = result.data[0]
+        supabase.table("users").update({"last_seen": now}).eq("email", email).execute()
+        return user
+    new_user = {"email": email, "first_seen": now, "last_seen": now, "paid_status": False, "total_generations": 0, "total_exports": 0}
+    created = supabase.table("users").insert(new_user).execute()
+    return created.data[0] if created.data else new_user
 
-try:
-    # This is the exact object streamlit-drawable-canvas references: st.image.image_to_url
-    st.image.image_to_url = _yodra_image_to_url
-except Exception:
-    pass
+def increment_generation_count(email):
+    if supabase is None or not email:
+        return 0
+    result = supabase.table("users").select("total_generations").eq("email", email).execute()
+    current = result.data[0].get("total_generations") if result.data else 0
+    current = current or 0
+    new_count = current + 1
+    supabase.table("users").update({"total_generations": new_count, "last_seen": datetime.now(timezone.utc).isoformat()}).eq("email", email).execute()
+    return new_count
 
-try:
-    # Also patch Streamlit's image module for environments that reference it directly.
-    import streamlit.elements.image as st_image
-    st_image.image_to_url = _yodra_image_to_url
-except Exception:
-    pass
+def increment_export_count(email):
+    if supabase is None or not email:
+        return
+    result = supabase.table("users").select("total_exports").eq("email", email).execute()
+    current = result.data[0].get("total_exports") if result.data else 0
+    current = current or 0
+    supabase.table("users").update({"total_exports": current + 1}).eq("email", email).execute()
 
-st.set_page_config(
-    page_title="AI-Powered Planting Design Engine",
-    layout="wide"
-)
+# -------------------------
+# PAGE + EMAIL GATE
+# -------------------------
 
-st.title("AI-Powered Planting Design Engine")
-st.caption("Draw a planting boundary or upload a scaled bed image, trace the bedline, generate a hierarchy-based planting plan, preview the matching elevation, and download the result.")
+st.set_page_config(page_title="YODRA Site Concepts", layout="wide")
+
+st.markdown("""
+<style>
+button[kind="primary"], div.stButton > button:first-child {
+    font-weight:700 !important;
+}
+.yodra-tip {background:#fff9db;border:1px solid #fff3bf;color:#5f4b00;padding:10px 12px;border-radius:6px;font-size:14px;line-height:1.35;margin:10px 0 14px 0;}
+.yodra-card {border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#ffffff;margin-bottom:10px;}
+.yodra-muted {color:#6b7280;font-size:13px;}
+.yodra-section-title {font-size:20px;font-weight:700;line-height:1.25;margin:0 0 8px 0;}
+.yodra-plant-name {font-size:14px;font-weight:700;margin:0 0 2px 0;}
+</style>
+""", unsafe_allow_html=True)
+
+def beta_email_gate():
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
+    if st.session_state.user_email:
+        return True
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h1 style="margin:0;line-height:1.1;">Generate Planting Concepts in Minutes</h1>
+        <span style="background:#f3f4f6;border:1px solid #e5e7eb;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;">Beta</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("Visualize spacing, explore plant combinations, and build preliminary plant palettes.")
+    st.caption("California Plant Database Available • Texas and Florida Coming Soon")
+    email = st.text_input("Enter your email to continue")
+    if st.button("Start Designing"):
+        if "@" not in email or "." not in email:
+            st.error("Please enter a valid email address.")
+            st.stop()
+        user = get_or_create_user(email)
+        st.session_state.user_email = user["email"]
+        st.session_state.user_data = user
+        log_event(user["email"], "app_opened")
+        st.rerun()
+    st.stop()
+
+beta_email_gate()
+
+TUTORIAL_URL = "https://youtu.be/mOuwuhSc2Gs"
 
 # -----------------------------
-# Canvas + Scale settings
+# SETTINGS
 # -----------------------------
 
-MAX_CANVAS_WIDTH = 900
-MAX_CANVAS_HEIGHT = 600
-DEFAULT_BED_LENGTH_FEET = 50
-DEFAULT_BED_WIDTH_FEET = 50
-MAX_BED_FEET = 50
+MAX_CANVAS_WIDTH = 980
+MAX_CANVAS_HEIGHT = 640
+DEFAULT_SITE_LENGTH_FEET = 80
+DEFAULT_SITE_WIDTH_FEET = 50
+MAX_SITE_FEET = 300
+GRID_SPACING_FEET = 10
 
-GRID_SPACING_FEET = 5
+DENSITY_OPTIONS = {"Low": 0.25, "Moderate": 0.38, "Dense": 0.55, "Very Dense": 0.72}
+SPACING_BY_DENSITY = {"Low": 1.45, "Moderate": 1.25, "Dense": 1.12, "Very Dense": 1.05}
+MAX_PLANTS_BY_DENSITY = {"Low": 220, "Moderate": 350, "Dense": 500, "Very Dense": 700}
 
-DENSITY_OPTIONS = {
-    "Low": 0.30,
-    "Moderate": 0.45,
-    "Dense": 0.68,
-    "Very Dense": 0.90
-}
+# -----------------------------
+# PLANT DATABASE
+# -----------------------------
 
-SPACING_BY_DENSITY = {
-    "Low": 1.30,
-    "Moderate": 1.15,
-    "Dense": 1.05,
-    "Very Dense": 1.00
-}
-
-MAX_PLANTS_BY_DENSITY = {
-    "Low": 180,
-    "Moderate": 260,
-    "Dense": 350,
-    "Very Dense": 500
-}
-
-# Placeholder used only while the plant database is being defined.
-# Runtime radii are recalculated after the active bed scale is known.
 def feet_to_canvas_radius(width_ft):
     return width_ft / 2
 
-# -----------------------------
-# Plant database
-# -----------------------------
-
 PLANTS = [
-    {
-        "name": "Carex pansa",
-        "common_name": "Sand Dune Sedge",
-        "code": "CP",
-        "state": ["California"],
-        "climate": ["Coastal"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Moderate-Low"],
-        "spread_ft": 2,
-        "height_ft": 1,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Green",
-        "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/carex-pansa.webp",
-        "elevation_height": 28,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Eriogonum latifolium",
-        "common_name": "Coast Buckwheat",
-        "code": "EL",
-        "state": ["California"],
-        "climate": ["Coastal"],
-        "usda_min": 8,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 2,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Perennial",
-        "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Silver-Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/eriogonum-latifolium.webp",
-        "elevation_height": 34,
-        "hierarchy": "Accent Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Festuca californica",
-        "common_name": "California Fescue",
-        "code": "FC",
-        "state": ["California"],
-        "climate": ["Coastal"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low-Moderate"],
-        "spread_ft": 2,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Blue-Green",
-        "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/festuca-californica.webp",
-        "elevation_height": 34,
-        "hierarchy": "Groundcover",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Salvia spathacea",
-        "common_name": "Hummingbird Sage",
-        "code": "SS",
-        "state": ["California"],
-        "climate": ["Coastal"],
-        "usda_min": 8,
-        "usda_max": 10,
-        "sun": ["Part Shade-Full Shade"],
-        "water": ["Moderate"],
-        "spread_ft": 4,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(4),
-        "form": "Perennial",
-        "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Bold",
-        "color_tone": "Dark Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/salvia-spathacea.webp",
-        "elevation_height": 42,
-        "hierarchy": "Mid Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Iris douglasiana",
-        "common_name": "Douglas Iris",
-        "code": "ID",
-        "state": ["California"],
-        "climate": ["Coastal"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Moderate"],
-        "spread_ft": 2,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Perennial",
-        "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/iris-douglasiana.webp",
-        "elevation_height": 42,
-        "hierarchy": "Accent Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Arbutus menziesii",
-        "common_name": "Pacific Madrone",
-        "code": "AM",
-        "state": ["California"],
-        "climate": ["Coastal", "Woodland"],
-        "usda_min": 7,
-        "usda_max": 9,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
-        "spread_ft": 20,
-        "height_ft": 40,
-        "radius": feet_to_canvas_radius(20),
-        "form": "Tree",
-        "role": "Canopy",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Bold",
-        "color_tone": "Dark Green",
-        "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/arbutus-menziesii.webp",
-        "elevation_height": 135,
-        "hierarchy": "Anchor",
-        "weight": 1,
-        "allows_underplanting": True
-    },
-    {
-        "name": "Arctostaphylos densiflora 'Howard McMinn'",
-        "common_name": "Howard McMinn Manzanita",
-        "code": "AHM",
-        "state": ["California"],
-        "climate": ["Coastal", "Inland"],
-        "usda_min": 8,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
-        "spread_ft": 8,
-        "height_ft": 7,
-        "radius": feet_to_canvas_radius(8),
-        "form": "Shrub",
-        "role": "Structure",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Grey-Green",
-        "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/arctostaphylos-howard-mcminn.webp",
-        "elevation_height": 105,
-        "hierarchy": "Anchor",
-        "weight": 2,
-        "allows_underplanting": True
-    },
-    {
-        "name": "Muhlenbergia rigens",
-        "common_name": "Deergrass",
-        "code": "MR",
-        "state": ["California"],
-        "climate": ["Inland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 5,
-        "height_ft": 4,
-        "radius": feet_to_canvas_radius(5),
-        "form": "Grass",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/muhlenbergia-rigens.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Stipa pulchra",
-        "common_name": "Purple Needlegrass",
-        "code": "SP",
-        "state": ["California"],
-        "climate": ["Inland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 2,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Golden Green",
-        "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/stipa-pulchra.webp",
-        "elevation_height": 34,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Juncus patens",
-        "common_name": "Common Rush",
-        "code": "JP",
-        "state": ["California"],
-        "climate": ["Inland", "Coastal"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low-Moderate"],
-        "spread_ft": 3,
-        "height_ft": 3,
-        "radius": feet_to_canvas_radius(3),
-        "form": "Grass",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Blue-Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/juncus-patens.webp",
-        "elevation_height": 46,
-        "hierarchy": "Groundcover",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Eriogonum fasciculatum",
-        "common_name": "California Buckwheat",
-        "code": "EF",
-        "state": ["California"],
-        "climate": ["Inland", "Dry"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 5,
-        "height_ft": 4,
-        "radius": feet_to_canvas_radius(5),
-        "form": "Shrub",
-        "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Grey-Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/eriogonum-fasciculatum.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Epilobium canum",
-        "common_name": "California Fuchsia",
-        "code": "EC",
-        "state": ["California"],
-        "climate": ["Inland", "Dry"],
-        "usda_min": 8,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 3,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(3),
-        "form": "Perennial",
-        "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Green",
-        "visual_weight": 2,
-        "seasonality": "Semi-evergreen",
-        "image": "plant_images/epilobium-canum.webp",
-        "elevation_height": 42,
-        "hierarchy": "Accent Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Artemisia californica",
-        "common_name": "California Sagebrush",
-        "code": "AC",
-        "state": ["California"],
-        "climate": ["Inland", "Dry"],
-        "usda_min": 8,
-        "usda_max": 10,
-        "sun": ["Full Sun"],
-        "water": ["Low"],
-        "spread_ft": 5,
-        "height_ft": 4,
-        "radius": feet_to_canvas_radius(5),
-        "form": "Shrub",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Silver-Grey",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/artemisia-californica.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Quercus chrysolepis",
-        "common_name": "Canyon Live Oak",
-        "code": "QC",
-        "state": ["California"],
-        "climate": ["Inland", "Woodland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
-        "spread_ft": 30,
-        "height_ft": 40,
-        "radius": feet_to_canvas_radius(30),
-        "form": "Tree",
-        "role": "Canopy",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Bold",
-        "color_tone": "Dark Green",
-        "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/quercus-chrysolepis.webp",
-        "elevation_height": 135,
-        "hierarchy": "Anchor",
-        "weight": 1,
-        "allows_underplanting": True
-    },
-    {
-        "name": "Carex tumulicola",
-        "common_name": "Foothill Sedge",
-        "code": "CT",
-        "state": ["California"],
-        "climate": ["Woodland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Part Shade-Full Sun"],
-        "water": ["Moderate-Low"],
-        "spread_ft": 2,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(2),
-        "form": "Grass",
-        "role": "Matrix",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Fine",
-        "color_tone": "Green",
-        "visual_weight": 1,
-        "seasonality": "Evergreen",
-        "image": "plant_images/carex-tumulicola.webp",
-        "elevation_height": 34,
-        "hierarchy": "Groundcover",
-        "weight": 5,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Polystichum munitum",
-        "common_name": "Western Sword Fern",
-        "code": "PM",
-        "state": ["California"],
-        "climate": ["Woodland"],
-        "usda_min": 5,
-        "usda_max": 9,
-        "sun": ["Part Shade-Full Shade"],
-        "water": ["Moderate"],
-        "spread_ft": 4,
-        "height_ft": 4,
-        "radius": feet_to_canvas_radius(4),
-        "form": "Fern",
-        "role": "Matrix",
-        "style": ["Naturalistic"],
-        "texture": "Bold",
-        "color_tone": "Dark Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/polystichum-munitum.webp",
-        "elevation_height": 58,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Heuchera maxima",
-        "common_name": "Island Alum Root",
-        "code": "HM",
-        "state": ["California"],
-        "climate": ["Woodland"],
-        "usda_min": 8,
-        "usda_max": 10,
-        "sun": ["Part Shade"],
-        "water": ["Moderate-Low"],
-        "spread_ft": 3,
-        "height_ft": 2,
-        "radius": feet_to_canvas_radius(3),
-        "form": "Perennial",
-        "role": "Accent",
-        "style": ["Naturalistic"],
-        "texture": "Medium",
-        "color_tone": "Green",
-        "visual_weight": 2,
-        "seasonality": "Evergreen",
-        "image": "plant_images/heuchera-maxima.webp",
-        "elevation_height": 42,
-        "hierarchy": "Accent Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Ribes sanguineum",
-        "common_name": "Red-Flowering Currant",
-        "code": "RS",
-        "state": ["California"],
-        "climate": ["Woodland"],
-        "usda_min": 6,
-        "usda_max": 9,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Moderate-Low"],
-        "spread_ft": 6,
-        "height_ft": 8,
-        "radius": feet_to_canvas_radius(6),
-        "form": "Shrub",
-        "role": "Accent",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Green",
-        "visual_weight": 2,
-        "seasonality": "Deciduous",
-        "image": "plant_images/ribes-sanguineum.webp",
-        "elevation_height": 110,
-        "hierarchy": "Mid Layer",
-        "weight": 3,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Woodwardia fimbriata",
-        "common_name": "Giant Chain Fern",
-        "code": "WF",
-        "state": ["California"],
-        "climate": ["Woodland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Part Shade-Full Shade"],
-        "water": ["Moderate"],
-        "spread_ft": 6,
-        "height_ft": 5,
-        "radius": feet_to_canvas_radius(6),
-        "form": "Fern",
-        "role": "Matrix",
-        "style": ["Naturalistic"],
-        "texture": "Bold",
-        "color_tone": "Dark Green",
-        "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/woodwardia-fimbriata.webp",
-        "elevation_height": 70,
-        "hierarchy": "Mid Layer",
-        "weight": 4,
-        "allows_underplanting": False
-    },
-    {
-        "name": "Acer circinatum",
-        "common_name": "Vine Maple",
-        "code": "ACI",
-        "state": ["California"],
-        "climate": ["Woodland"],
-        "usda_min": 6,
-        "usda_max": 9,
-        "sun": ["Part Shade"],
-        "water": ["Moderate"],
-        "spread_ft": 15,
-        "height_ft": 20,
-        "radius": feet_to_canvas_radius(15),
-        "form": "Tree",
-        "role": "Canopy",
-        "style": ["Naturalistic"],
-        "texture": "Medium",
-        "color_tone": "Green",
-        "visual_weight": 3,
-        "seasonality": "Deciduous",
-        "image": "plant_images/acer-circinatum.webp",
-        "elevation_height": 125,
-        "hierarchy": "Anchor",
-        "weight": 1,
-        "allows_underplanting": True
-    },
-    {
-        "name": "Heteromeles arbutifolia",
-        "common_name": "Toyon",
-        "code": "HA",
-        "state": ["California"],
-        "climate": ["Woodland", "Inland"],
-        "usda_min": 7,
-        "usda_max": 10,
-        "sun": ["Full Sun-Part Shade"],
-        "water": ["Low"],
-        "spread_ft": 10,
-        "height_ft": 15,
-        "radius": feet_to_canvas_radius(10),
-        "form": "Shrub",
-        "role": "Structure",
-        "style": ["Naturalistic", "Contemporary"],
-        "texture": "Medium",
-        "color_tone": "Dark Green",
-        "visual_weight": 3,
-        "seasonality": "Evergreen",
-        "image": "plant_images/heteromeles-arbutifolia.webp",
-        "elevation_height": 118,
-        "hierarchy": "Anchor",
-        "weight": 2,
-        "allows_underplanting": True
-    },
+    {"name":"Carex pansa","common_name":"Sand Dune Sedge","code":"CP","state":["California"],"climate":["Coastal"],"usda_min":7,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Moderate-Low"],"spread_ft":2,"height_ft":1,"radius":feet_to_canvas_radius(2),"form":"Grass","role":"Matrix","texture":"Fine","color_tone":"Green","visual_weight":1,"seasonality":"Evergreen","image":"plant_images/carex-pansa.webp","elevation_height":28,"hierarchy":"Groundcover","weight":5,"allows_underplanting":False},
+    {"name":"Eriogonum latifolium","common_name":"Coast Buckwheat","code":"EL","state":["California"],"climate":["Coastal"],"usda_min":8,"usda_max":10,"sun":["Full Sun"],"water":["Low"],"spread_ft":2,"height_ft":2,"radius":feet_to_canvas_radius(2),"form":"Perennial","role":"Accent","texture":"Medium","color_tone":"Silver-Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/eriogonum-latifolium.webp","elevation_height":34,"hierarchy":"Accent Layer","weight":3,"allows_underplanting":False},
+    {"name":"Festuca californica","common_name":"California Fescue","code":"FC","state":["California"],"climate":["Coastal"],"usda_min":7,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Low-Moderate"],"spread_ft":2,"height_ft":2,"radius":feet_to_canvas_radius(2),"form":"Grass","role":"Matrix","texture":"Fine","color_tone":"Blue-Green","visual_weight":1,"seasonality":"Evergreen","image":"plant_images/festuca-californica.webp","elevation_height":34,"hierarchy":"Groundcover","weight":4,"allows_underplanting":False},
+    {"name":"Salvia spathacea","common_name":"Hummingbird Sage","code":"SS","state":["California"],"climate":["Coastal"],"usda_min":8,"usda_max":10,"sun":["Part Shade-Full Shade"],"water":["Moderate"],"spread_ft":4,"height_ft":2,"radius":feet_to_canvas_radius(4),"form":"Perennial","role":"Accent","texture":"Bold","color_tone":"Dark Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/salvia-spathacea.webp","elevation_height":42,"hierarchy":"Mid Layer","weight":3,"allows_underplanting":False},
+    {"name":"Iris douglasiana","common_name":"Douglas Iris","code":"ID","state":["California"],"climate":["Coastal"],"usda_min":7,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Moderate"],"spread_ft":2,"height_ft":2,"radius":feet_to_canvas_radius(2),"form":"Perennial","role":"Accent","texture":"Medium","color_tone":"Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/iris-douglasiana.webp","elevation_height":42,"hierarchy":"Accent Layer","weight":3,"allows_underplanting":False},
+    {"name":"Arbutus menziesii","common_name":"Pacific Madrone","code":"AM","state":["California"],"climate":["Coastal","Woodland"],"usda_min":7,"usda_max":9,"sun":["Full Sun-Part Shade"],"water":["Low"],"spread_ft":20,"height_ft":40,"radius":feet_to_canvas_radius(20),"form":"Tree","role":"Canopy","texture":"Bold","color_tone":"Dark Green","visual_weight":3,"seasonality":"Evergreen","image":"plant_images/arbutus-menziesii.webp","elevation_height":135,"hierarchy":"Anchor","weight":1,"allows_underplanting":True},
+    {"name":"Arctostaphylos densiflora 'Howard McMinn'","common_name":"Howard McMinn Manzanita","code":"AHM","state":["California"],"climate":["Coastal","Inland"],"usda_min":8,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Low"],"spread_ft":8,"height_ft":7,"radius":feet_to_canvas_radius(8),"form":"Shrub","role":"Structure","texture":"Medium","color_tone":"Grey-Green","visual_weight":3,"seasonality":"Evergreen","image":"plant_images/arctostaphylos-howard-mcminn.webp","elevation_height":105,"hierarchy":"Anchor","weight":2,"allows_underplanting":True},
+    {"name":"Muhlenbergia rigens","common_name":"Deergrass","code":"MR","state":["California"],"climate":["Inland"],"usda_min":7,"usda_max":10,"sun":["Full Sun"],"water":["Low"],"spread_ft":5,"height_ft":4,"radius":feet_to_canvas_radius(5),"form":"Grass","role":"Matrix","texture":"Fine","color_tone":"Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/muhlenbergia-rigens.webp","elevation_height":58,"hierarchy":"Mid Layer","weight":4,"allows_underplanting":False},
+    {"name":"Stipa pulchra","common_name":"Purple Needlegrass","code":"SP","state":["California"],"climate":["Inland"],"usda_min":7,"usda_max":10,"sun":["Full Sun"],"water":["Low"],"spread_ft":2,"height_ft":2,"radius":feet_to_canvas_radius(2),"form":"Grass","role":"Matrix","texture":"Fine","color_tone":"Golden Green","visual_weight":1,"seasonality":"Evergreen","image":"plant_images/stipa-pulchra.webp","elevation_height":34,"hierarchy":"Groundcover","weight":5,"allows_underplanting":False},
+    {"name":"Juncus patens","common_name":"Common Rush","code":"JP","state":["California"],"climate":["Inland","Coastal"],"usda_min":7,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Low-Moderate"],"spread_ft":3,"height_ft":3,"radius":feet_to_canvas_radius(3),"form":"Grass","role":"Matrix","texture":"Fine","color_tone":"Blue-Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/juncus-patens.webp","elevation_height":46,"hierarchy":"Groundcover","weight":4,"allows_underplanting":False},
+    {"name":"Eriogonum fasciculatum","common_name":"California Buckwheat","code":"EF","state":["California"],"climate":["Inland","Dry"],"usda_min":7,"usda_max":10,"sun":["Full Sun"],"water":["Low"],"spread_ft":5,"height_ft":4,"radius":feet_to_canvas_radius(5),"form":"Shrub","role":"Accent","texture":"Medium","color_tone":"Grey-Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/eriogonum-fasciculatum.webp","elevation_height":58,"hierarchy":"Mid Layer","weight":3,"allows_underplanting":False},
+    {"name":"Epilobium canum","common_name":"California Fuchsia","code":"EC","state":["California"],"climate":["Inland","Dry"],"usda_min":8,"usda_max":10,"sun":["Full Sun"],"water":["Low"],"spread_ft":3,"height_ft":2,"radius":feet_to_canvas_radius(3),"form":"Perennial","role":"Accent","texture":"Medium","color_tone":"Green","visual_weight":2,"seasonality":"Semi-evergreen","image":"plant_images/epilobium-canum.webp","elevation_height":42,"hierarchy":"Accent Layer","weight":3,"allows_underplanting":False},
+    {"name":"Artemisia californica","common_name":"California Sagebrush","code":"AC","state":["California"],"climate":["Inland","Dry"],"usda_min":8,"usda_max":10,"sun":["Full Sun"],"water":["Low"],"spread_ft":5,"height_ft":4,"radius":feet_to_canvas_radius(5),"form":"Shrub","role":"Matrix","texture":"Fine","color_tone":"Silver-Grey","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/artemisia-californica.webp","elevation_height":58,"hierarchy":"Mid Layer","weight":4,"allows_underplanting":False},
+    {"name":"Quercus chrysolepis","common_name":"Canyon Live Oak","code":"QC","state":["California"],"climate":["Inland","Woodland"],"usda_min":7,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Low"],"spread_ft":30,"height_ft":40,"radius":feet_to_canvas_radius(30),"form":"Tree","role":"Canopy","texture":"Bold","color_tone":"Dark Green","visual_weight":3,"seasonality":"Evergreen","image":"plant_images/quercus-chrysolepis.webp","elevation_height":135,"hierarchy":"Anchor","weight":1,"allows_underplanting":True},
+    {"name":"Carex tumulicola","common_name":"Foothill Sedge","code":"CT","state":["California"],"climate":["Woodland"],"usda_min":7,"usda_max":10,"sun":["Part Shade-Full Sun"],"water":["Moderate-Low"],"spread_ft":2,"height_ft":2,"radius":feet_to_canvas_radius(2),"form":"Grass","role":"Matrix","texture":"Fine","color_tone":"Green","visual_weight":1,"seasonality":"Evergreen","image":"plant_images/carex-tumulicola.webp","elevation_height":34,"hierarchy":"Groundcover","weight":5,"allows_underplanting":False},
+    {"name":"Polystichum munitum","common_name":"Western Sword Fern","code":"PM","state":["California"],"climate":["Woodland"],"usda_min":5,"usda_max":9,"sun":["Part Shade-Full Shade"],"water":["Moderate"],"spread_ft":4,"height_ft":4,"radius":feet_to_canvas_radius(4),"form":"Fern","role":"Matrix","texture":"Bold","color_tone":"Dark Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/polystichum-munitum.webp","elevation_height":58,"hierarchy":"Mid Layer","weight":4,"allows_underplanting":False},
+    {"name":"Heuchera maxima","common_name":"Island Alum Root","code":"HM","state":["California"],"climate":["Woodland"],"usda_min":8,"usda_max":10,"sun":["Part Shade"],"water":["Moderate-Low"],"spread_ft":3,"height_ft":2,"radius":feet_to_canvas_radius(3),"form":"Perennial","role":"Accent","texture":"Medium","color_tone":"Green","visual_weight":2,"seasonality":"Evergreen","image":"plant_images/heuchera-maxima.webp","elevation_height":42,"hierarchy":"Accent Layer","weight":3,"allows_underplanting":False},
+    {"name":"Ribes sanguineum","common_name":"Red-Flowering Currant","code":"RS","state":["California"],"climate":["Woodland"],"usda_min":6,"usda_max":9,"sun":["Full Sun-Part Shade"],"water":["Moderate-Low"],"spread_ft":6,"height_ft":8,"radius":feet_to_canvas_radius(6),"form":"Shrub","role":"Accent","texture":"Medium","color_tone":"Green","visual_weight":2,"seasonality":"Deciduous","image":"plant_images/ribes-sanguineum.webp","elevation_height":110,"hierarchy":"Mid Layer","weight":3,"allows_underplanting":False},
+    {"name":"Woodwardia fimbriata","common_name":"Giant Chain Fern","code":"WF","state":["California"],"climate":["Woodland"],"usda_min":7,"usda_max":10,"sun":["Part Shade-Full Shade"],"water":["Moderate"],"spread_ft":6,"height_ft":5,"radius":feet_to_canvas_radius(6),"form":"Fern","role":"Matrix","texture":"Bold","color_tone":"Dark Green","visual_weight":3,"seasonality":"Evergreen","image":"plant_images/woodwardia-fimbriata.webp","elevation_height":70,"hierarchy":"Mid Layer","weight":4,"allows_underplanting":False},
+    {"name":"Acer circinatum","common_name":"Vine Maple","code":"ACI","state":["California"],"climate":["Woodland"],"usda_min":6,"usda_max":9,"sun":["Part Shade"],"water":["Moderate"],"spread_ft":15,"height_ft":20,"radius":feet_to_canvas_radius(15),"form":"Tree","role":"Canopy","texture":"Medium","color_tone":"Green","visual_weight":3,"seasonality":"Deciduous","image":"plant_images/acer-circinatum.webp","elevation_height":125,"hierarchy":"Anchor","weight":1,"allows_underplanting":True},
+    {"name":"Heteromeles arbutifolia","common_name":"Toyon","code":"HA","state":["California"],"climate":["Woodland","Inland"],"usda_min":7,"usda_max":10,"sun":["Full Sun-Part Shade"],"water":["Low"],"spread_ft":10,"height_ft":15,"radius":feet_to_canvas_radius(10),"form":"Shrub","role":"Structure","texture":"Medium","color_tone":"Dark Green","visual_weight":3,"seasonality":"Evergreen","image":"plant_images/heteromeles-arbutifolia.webp","elevation_height":118,"hierarchy":"Anchor","weight":2,"allows_underplanting":True},
 ]
 
-
-HIERARCHY_ORDER = ["Anchor", "Mid Layer", "Accent Layer", "Groundcover"]
-
-HIERARCHY_COVERAGE_SPLIT = {
-    "Anchor": 0.24,
-    "Mid Layer": 0.30,
-    "Accent Layer": 0.20,
-    "Groundcover": 0.26
+STYLE_FIT_BY_CODE = {
+    "CP":["Wild / Naturalized","Contemporary","Meadow"],"EL":["Wild / Naturalized","Meadow","Perennial Garden","Dry Garden"],"FC":["Wild / Naturalized","Contemporary","Meadow"],"SS":["Wild / Naturalized","Perennial Garden","Woodland Garden"],"ID":["Wild / Naturalized","Meadow","Perennial Garden","Woodland Garden"],"AM":["Wild / Naturalized","Woodland Garden","Contemporary"],"AHM":["Contemporary","Wild / Naturalized","Dry Garden"],"MR":["Wild / Naturalized","Contemporary","Meadow"],"SP":["Wild / Naturalized","Meadow"],"JP":["Wild / Naturalized","Meadow","Contemporary"],"EF":["Wild / Naturalized","Meadow","Perennial Garden","Dry Garden"],"EC":["Wild / Naturalized","Meadow","Perennial Garden","Dry Garden"],"AC":["Wild / Naturalized","Dry Garden","Meadow","Contemporary"],"QC":["Wild / Naturalized","Woodland Garden"],"CT":["Wild / Naturalized","Woodland Garden","Contemporary"],"PM":["Woodland Garden","Wild / Naturalized"],"HM":["Woodland Garden","Wild / Naturalized","Perennial Garden","Contemporary"],"RS":["Woodland Garden","Wild / Naturalized"],"WF":["Woodland Garden","Wild / Naturalized"],"ACI":["Woodland Garden","Wild / Naturalized","Contemporary"],"HA":["Woodland Garden","Contemporary","Wild / Naturalized","Dry Garden"]
 }
 
-HEIGHT_VARIATION_BY_HIERARCHY = {
-    "Anchor": 0.06,
-    "Mid Layer": 0.10,
-    "Accent Layer": 0.15,
-    "Groundcover": 0.08
+STYLE_LOGIC = {
+    "Wild / Naturalized": {"species_limit":9,"spacing_multiplier":1.00,"description":"Mixed ecological planting with canopy, structure, grasses, perennials, and accents.","form_priority":[],"role_boost":{"Matrix":1.15,"Accent":1.05,"Structure":1.0,"Canopy":0.8}},
+    "Contemporary": {"species_limit":5,"spacing_multiplier":1.22,"description":"Fewer species, repeated masses, cleaner spacing, and more negative space.","form_priority":["Grass","Shrub","Tree","Fern","Perennial"],"role_boost":{"Structure":1.35,"Matrix":1.25,"Canopy":1.0,"Accent":0.75}},
+    "Meadow": {"species_limit":6,"spacing_multiplier":0.96,"description":"Grass-dominant field condition with limited seasonal accents.","form_priority":["Grass","Perennial","Shrub"],"role_boost":{"Matrix":1.75,"Accent":1.0,"Structure":0.35,"Canopy":0.0}},
+    "Perennial Garden": {"species_limit":7,"spacing_multiplier":1.02,"description":"Flowering and textural perennial emphasis with restrained matrix plants.","form_priority":["Perennial","Grass"],"role_boost":{"Accent":1.65,"Matrix":1.0,"Structure":0.0,"Canopy":0.0}},
+    "Woodland Garden": {"species_limit":7,"spacing_multiplier":1.10,"description":"Shade-tolerant canopy, shrubs, ferns, sedges, and understory pockets.","form_priority":["Tree","Shrub","Fern","Grass","Perennial"],"role_boost":{"Canopy":1.25,"Structure":1.15,"Matrix":1.25,"Accent":1.0}},
+    "Dry Garden": {"species_limit":6,"spacing_multiplier":1.14,"description":"Low-water grasses, shrubs, silver textures, and open spacing.","form_priority":["Shrub","Grass","Perennial"],"role_boost":{"Structure":1.25,"Matrix":1.15,"Accent":1.0,"Canopy":0.25}},
 }
+DESIGN_STYLE_OPTIONS = list(STYLE_LOGIC.keys())
+CONCEPT_STYLES = ["Contemporary", "Meadow", "Perennial Garden"]
+
+ZONE_INTENTS = [
+    "Foundation Planting",
+    "Entry Garden",
+    "Pool Planting",
+    "Privacy Screen",
+    "Property Buffer",
+    "Pollinator Garden",
+    "Meadow / Ground Plane",
+    "Woodland Understory",
+    "Existing Tree Root Zone / Keep-Out",
+    "No Plant Zone / Keep-Out",
+]
+
+INTENT_LOGIC = {
+    "Foundation Planting": {"forms":["Shrub","Grass","Perennial","Fern"],"max_height":8,"density_boost":0.95,"role_boost":{"Structure":1.2,"Matrix":1.2,"Accent":1.0,"Canopy":0.0}},
+    "Entry Garden": {"forms":["Shrub","Grass","Perennial","Fern","Tree"],"max_height":15,"density_boost":1.0,"role_boost":{"Structure":1.15,"Matrix":1.0,"Accent":1.25,"Canopy":0.35}},
+    "Pool Planting": {"forms":["Shrub","Grass","Perennial"],"max_height":10,"density_boost":0.9,"role_boost":{"Structure":1.25,"Matrix":1.15,"Accent":0.85,"Canopy":0.0}},
+    "Privacy Screen": {"forms":["Shrub","Tree"],"max_height":40,"density_boost":0.85,"role_boost":{"Structure":1.75,"Canopy":0.75,"Matrix":0.25,"Accent":0.25}},
+    "Property Buffer": {"forms":["Shrub","Tree","Grass"],"max_height":40,"density_boost":0.9,"role_boost":{"Structure":1.4,"Canopy":0.8,"Matrix":1.0,"Accent":0.4}},
+    "Pollinator Garden": {"forms":["Perennial","Grass","Shrub"],"max_height":6,"density_boost":1.1,"role_boost":{"Accent":1.6,"Matrix":1.0,"Structure":0.5,"Canopy":0.0}},
+    "Meadow / Ground Plane": {"forms":["Grass","Perennial"],"max_height":5,"density_boost":1.15,"role_boost":{"Matrix":1.8,"Accent":0.9,"Structure":0.0,"Canopy":0.0}},
+    "Woodland Understory": {"forms":["Fern","Grass","Perennial","Shrub"],"max_height":8,"density_boost":1.05,"role_boost":{"Matrix":1.4,"Accent":1.0,"Structure":0.8,"Canopy":0.0}},
+}
+
+ROLE_ORDER = ["Canopy", "Structure", "Matrix", "Accent"]
+HEIGHT_VARIATION_BY_HIERARCHY = {"Anchor":0.06,"Mid Layer":0.10,"Accent Layer":0.15,"Groundcover":0.08}
 
 # -----------------------------
-# Helper functions
+# SESSION STATE
+# -----------------------------
+
+def init_state():
+    defaults = {
+        "zones": [],
+        "active_zone_points": [],
+        "last_click": None,
+        "concepts": None,
+        "active_concept_index": 0,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = deepcopy(v)
+
+init_state()
+
+# -----------------------------
+# HELPERS
 # -----------------------------
 
 def clamp_dimension(value, fallback):
@@ -721,303 +284,47 @@ def clamp_dimension(value, fallback):
         value = float(value)
     except Exception:
         return fallback
-    return max(1, min(value, MAX_BED_FEET))
-
+    return max(1, min(value, MAX_SITE_FEET))
 
 def get_canvas_setup(length_ft, width_ft):
-    """Return canvas dimensions and true feet-per-canvas-unit scale.
-
-    length_ft is horizontal. width_ft is vertical/depth.
-    The canvas preserves the real bed aspect ratio and fits inside the max pixel bounds.
-    """
-    length_ft = clamp_dimension(length_ft, DEFAULT_BED_LENGTH_FEET)
-    width_ft = clamp_dimension(width_ft, DEFAULT_BED_WIDTH_FEET)
-
+    length_ft = clamp_dimension(length_ft, DEFAULT_SITE_LENGTH_FEET)
+    width_ft = clamp_dimension(width_ft, DEFAULT_SITE_WIDTH_FEET)
     pixels_per_foot = min(MAX_CANVAS_WIDTH / length_ft, MAX_CANVAS_HEIGHT / width_ft)
-    canvas_width = max(250, int(round(length_ft * pixels_per_foot)))
-    canvas_height = max(250, int(round(width_ft * pixels_per_foot)))
+    canvas_width = max(320, int(round(length_ft * pixels_per_foot)))
+    canvas_height = max(280, int(round(width_ft * pixels_per_foot)))
     feet_per_canvas_unit = 1 / pixels_per_foot
     grid_spacing_units = GRID_SPACING_FEET / feet_per_canvas_unit
-
     return canvas_width, canvas_height, feet_per_canvas_unit, grid_spacing_units
 
-
 def make_runtime_plant_pool(plants, feet_per_canvas_unit):
-    runtime_plants = []
+    out = []
     for plant in plants:
         p = plant.copy()
         p["radius"] = (p["spread_ft"] / 2) / feet_per_canvas_unit
-        runtime_plants.append(p)
-    return runtime_plants
-
-
-def circle_inside(poly, x, y, r):
-    return poly.contains(Point(x, y).buffer(r))
-
-
-def circles_overlap(x, y, r, placed, spacing_factor, plant=None):
-    for p in placed:
-        existing_plant = p["plant"]
-
-        existing_allows_underplanting = existing_plant.get("allows_underplanting", False)
-        current_allows_underplanting = plant is not None and plant.get("allows_underplanting", False)
-
-        if existing_allows_underplanting and not current_allows_underplanting:
-            continue
-
-        if current_allows_underplanting and not existing_allows_underplanting:
-            continue
-
-        distance = math.dist((x, y), (p["x"], p["y"]))
-        min_distance = (r + p["radius"]) * spacing_factor
-
-        if distance < min_distance:
-            return True
-
-    return False
-
-
-def weighted_choice(plants):
-    if not plants:
-        return None
-
-    weights = [p.get("weight", 1) for p in plants]
-    return random.choices(plants, weights=weights, k=1)[0]
-
-
-def pack_layer(poly, plants, target_area, spacing_factor, existing_placed, max_plants_total):
-    if not plants:
-        return [], 0
-
-    minx, miny, maxx, maxy = poly.bounds
-    placed_layer = []
-    placed_area = 0
-    attempts = 0
-    max_attempts = 16000
-
-    while (
-        placed_area < target_area
-        and attempts < max_attempts
-        and len(existing_placed) + len(placed_layer) < max_plants_total
-    ):
-        attempts += 1
-
-        plant = weighted_choice(plants)
-        if plant is None:
-            break
-
-        r = plant["radius"]
-
-        if maxx - minx < r * 2 or maxy - miny < r * 2:
-            break
-
-        x = random.uniform(minx + r, maxx - r)
-        y = random.uniform(miny + r, maxy - r)
-
-        if not circle_inside(poly, x, y, r):
-            continue
-
-        all_existing = existing_placed + placed_layer
-
-        if circles_overlap(x, y, r, all_existing, spacing_factor, plant):
-            continue
-
-        placed_layer.append({"x": x, "y": y, "radius": r, "plant": plant})
-        placed_area += math.pi * (r ** 2)
-
-    return placed_layer, placed_area
-
-
-def pack_by_hierarchy(poly, plant_pool, target_coverage, spacing_factor, max_plants_total):
-    boundary_area = poly.area
-
-    if boundary_area <= 0:
-        return [], 0
-
-    total_target_area = boundary_area * target_coverage
-    all_placed = []
-    total_placed_area = 0
-
-    for hierarchy in HIERARCHY_ORDER:
-        layer_plants = [p for p in plant_pool if p["hierarchy"] == hierarchy]
-
-        if not layer_plants:
-            continue
-
-        layer_target_area = total_target_area * HIERARCHY_COVERAGE_SPLIT[hierarchy]
-
-        placed_layer, placed_area = pack_layer(
-            poly=poly,
-            plants=layer_plants,
-            target_area=layer_target_area,
-            spacing_factor=spacing_factor,
-            existing_placed=all_placed,
-            max_plants_total=max_plants_total
-        )
-
-        all_placed.extend(placed_layer)
-        total_placed_area += placed_area
-
-    return all_placed, total_placed_area / boundary_area
-
-
-def sun_is_compatible(selected_sun, plant_sun_options):
-    sun_compatibility = {
-        "Full Sun": ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Sun"],
-        "Full Sun-Part Shade": ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Sun", "Part Shade", "Part Shade-Full Shade"],
-        "Part Shade": ["Part Shade", "Full Sun-Part Shade", "Part Shade-Full Sun", "Part Shade-Full Shade"],
-        "Part Shade-Full Shade": ["Full Sun-Part Shade", "Part Shade", "Part Shade-Full Shade"],
-    }
-
-    compatible_values = sun_compatibility.get(selected_sun, [selected_sun])
-    return any(sun_value in compatible_values for sun_value in plant_sun_options)
-
-
-def water_is_compatible(selected_water, plant_water_options):
-    water_compatibility = {
-        "Low": ["Low", "Moderate-Low", "Low-Moderate"],
-        "Moderate-Low": ["Low", "Moderate-Low", "Low-Moderate", "Moderate"],
-        "Low-Moderate": ["Low", "Moderate-Low", "Low-Moderate", "Moderate"],
-        "Moderate": ["Moderate", "Low-Moderate", "Moderate-Low"],
-    }
-
-    compatible_values = water_compatibility.get(selected_water, [selected_water])
-    return any(water_value in compatible_values for water_value in plant_water_options)
-
-
-def filter_plants(plant_database, state, climate, sun, water, style):
-    return [
-        plant for plant in plant_database
-        if state in plant["state"]
-        and climate in plant["climate"]
-        and style in plant["style"]
-        and sun_is_compatible(sun, plant["sun"])
-        and water_is_compatible(water, plant["water"])
-    ]
-
-
-def get_polygon_from_canvas(canvas_json):
-    if canvas_json is None:
-        return None
-
-    objects = canvas_json.get("objects", [])
-    if len(objects) == 0:
-        return None
-
-    obj = objects[0]
-    if "path" not in obj:
-        return None
-
-    points = []
-    for p in obj["path"]:
-        if len(p) >= 3:
-            points.append((p[1], p[2]))
-
-    if len(points) < 3:
-        return None
-
-    return points
-
-
-def rectangle_points(canvas_width, canvas_height):
-    return [(0, 0), (canvas_width, 0), (canvas_width, canvas_height), (0, canvas_height)]
-
-
-def fig_to_png_bytes(fig):
-    buffer = BytesIO()
-    fig.savefig(buffer, format="png", dpi=200, bbox_inches="tight", transparent=False)
-    buffer.seek(0)
-    return buffer
-
-
-def fig_to_jpeg_bytes(fig):
-    buffer = BytesIO()
-    fig.savefig(buffer, format="jpg", dpi=200, bbox_inches="tight", facecolor="white", transparent=False)
-    buffer.seek(0)
-    return buffer
-
-
-def fig_to_svg_bytes(fig):
-    buffer = BytesIO()
-    fig.savefig(buffer, format="svg", bbox_inches="tight")
-    buffer.seek(0)
-    return buffer
-
-
-def canvas_area_to_sqft(area_canvas_units, feet_per_canvas_unit):
-    return area_canvas_units * (feet_per_canvas_unit ** 2)
-
-
-def canvas_length_to_feet(length_canvas_units, feet_per_canvas_unit):
-    return length_canvas_units * feet_per_canvas_unit
-
-
-def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
-    x = 0
-    while x <= canvas_width:
-        ax.axvline(x, linewidth=0.4, alpha=0.25)
-        x += grid_spacing_units
-
-    y = 0
-    while y <= canvas_height:
-        ax.axhline(y, linewidth=0.4, alpha=0.25)
-        y += grid_spacing_units
-
-
-def get_image_aspect_ratio(image_path):
-    try:
-        img = plt.imread(image_path)
-        height_px, width_px = img.shape[:2]
-        if height_px == 0:
-            return 1
-        return width_px / height_px
-    except Exception:
-        return 1
-
-
-def varied_height(plant):
-    tolerance = HEIGHT_VARIATION_BY_HIERARCHY.get(plant["hierarchy"], 0.08)
-    variation = random.uniform(1 - tolerance, 1 + tolerance)
-    return plant["elevation_height"] * variation
-
-
-def prepare_uploaded_image(uploaded_file, canvas_width, canvas_height):
+        p["style_fit"] = STYLE_FIT_BY_CODE.get(p.get("code"), ["Wild / Naturalized"])
+        out.append(p)
+    return out
+
+def uploaded_file_to_image(uploaded_file, page_number=1):
     if uploaded_file is None:
-        return None, None
+        return None
+    suffix = uploaded_file.name.lower().split(".")[-1]
+    data = uploaded_file.getvalue()
+    if suffix == "pdf":
+        if fitz is None:
+            st.error("PDF support requires PyMuPDF. Add `PyMuPDF` to requirements.txt, then redeploy.")
+            return None
+        doc = fitz.open(stream=data, filetype="pdf")
+        page_index = max(0, min(page_number - 1, len(doc) - 1))
+        page = doc.load_page(page_index)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        return Image.open(BytesIO(pix.tobytes("png"))).convert("RGB")
+    return Image.open(BytesIO(data)).convert("RGB")
 
-    image = Image.open(uploaded_file).convert("RGB")
-    image = image.resize((canvas_width, canvas_height))
-    image_array = plt.imread(BytesIO(image_to_png_bytes(image).getvalue()))
-    return image, image_array
-
-
-def render_trace_overlay(image, points, canvas_width, canvas_height):
-    """Return a PIL image with the uploaded background plus the clicked/traced bedline points.
-
-    This avoids relying on streamlit-drawable-canvas background_image, which can render
-    blank on Streamlit Cloud. Users click around the bedline directly on the image.
-    """
+def resize_image_to_canvas(image, canvas_width, canvas_height):
     if image is None:
         return None
-
-    overlay = image.copy().convert("RGB")
-    overlay = overlay.resize((canvas_width, canvas_height))
-    draw = ImageDraw.Draw(overlay)
-
-    if len(points) >= 2:
-        draw.line(points, fill=(255, 255, 255), width=3)
-
-    if len(points) >= 3:
-        # Light preview of the closing segment so users understand the final polygon.
-        draw.line([points[-1], points[0]], fill=(255, 255, 255), width=2)
-
-    for idx, (x, y) in enumerate(points):
-        r = 5
-        draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 80, 80), outline=(255, 255, 255), width=2)
-        draw.text((x + 7, y - 7), str(idx + 1), fill=(255, 255, 255))
-
-    return overlay
-
+    return image.resize((canvas_width, canvas_height)).convert("RGB")
 
 def image_to_png_bytes(image):
     buffer = BytesIO()
@@ -1025,620 +332,743 @@ def image_to_png_bytes(image):
     buffer.seek(0)
     return buffer
 
+def fig_to_png_bytes(fig):
+    buffer = BytesIO()
+    fig.savefig(buffer, format="png", dpi=200, bbox_inches="tight", transparent=False)
+    buffer.seek(0)
+    return buffer
+
+def fig_to_jpeg_bytes(fig):
+    buffer = BytesIO()
+    fig.savefig(buffer, format="jpg", dpi=200, bbox_inches="tight", facecolor="white", transparent=False)
+    buffer.seek(0)
+    return buffer
+
+def normalize_polygon(points):
+    if not points or len(points) < 3:
+        return None
+    poly = Polygon(points)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    if poly.is_empty or poly.area <= 0:
+        return None
+    return poly
+
+def circle_inside(poly, x, y, r):
+    return poly.contains(Point(x, y).buffer(r))
+
+def canvas_area_to_sqft(area_canvas_units, feet_per_canvas_unit):
+    return area_canvas_units * (feet_per_canvas_unit ** 2)
+
+def canvas_length_to_feet(length_canvas_units, feet_per_canvas_unit):
+    return length_canvas_units * feet_per_canvas_unit
+
+def sun_is_compatible(selected_sun, plant_sun_options):
+    compatible = {
+        "Full Sun": ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Sun"],
+        "Full Sun-Part Shade": ["Full Sun", "Full Sun-Part Shade", "Part Shade-Full Sun", "Part Shade", "Part Shade-Full Shade"],
+        "Part Shade": ["Part Shade", "Full Sun-Part Shade", "Part Shade-Full Sun", "Part Shade-Full Shade"],
+        "Part Shade-Full Shade": ["Full Sun-Part Shade", "Part Shade", "Part Shade-Full Shade"],
+    }
+    return any(v in compatible.get(selected_sun, [selected_sun]) for v in plant_sun_options)
+
+def water_is_compatible(selected_water, plant_water_options):
+    compatible = {
+        "Low": ["Low", "Moderate-Low", "Low-Moderate"],
+        "Moderate-Low": ["Low", "Moderate-Low", "Low-Moderate", "Moderate"],
+        "Low-Moderate": ["Low", "Moderate-Low", "Low-Moderate", "Moderate"],
+        "Moderate": ["Moderate", "Low-Moderate", "Moderate-Low"],
+    }
+    return any(v in compatible.get(selected_water, [selected_water]) for v in plant_water_options)
+
+def hardiness_is_compatible(selected_zones, usda_min, usda_max):
+    if not selected_zones:
+        return True
+    return any(usda_min <= z <= usda_max for z in selected_zones)
+
+def filter_plants(plant_database, state, selected_usda_zones, sun, water):
+    return [p for p in plant_database if state in p["state"] and hardiness_is_compatible(selected_usda_zones, p["usda_min"], p["usda_max"]) and sun_is_compatible(sun, p["sun"]) and water_is_compatible(water, p["water"])]
+
+def filter_plants_by_style(plant_database, design_style):
+    filtered = [p for p in plant_database if design_style in p.get("style_fit", [])]
+    if design_style == "Perennial Garden":
+        filtered = [p for p in filtered if p.get("form") == "Perennial"]
+    if design_style == "Meadow":
+        filtered = [p for p in filtered if p.get("form") in ["Grass", "Perennial", "Shrub"]]
+    if design_style == "Dry Garden":
+        filtered = [p for p in filtered if any(w in ["Low", "Low-Moderate", "Moderate-Low"] for w in p.get("water", []))]
+    return filtered
+
+def filter_plants_by_intent(plant_database, zone_intent):
+    if zone_intent in ["Existing Tree Root Zone / Keep-Out", "No Plant Zone / Keep-Out"]:
+        return []
+    logic = INTENT_LOGIC.get(zone_intent)
+    if not logic:
+        return plant_database
+    forms = logic.get("forms", [])
+    max_height = logic.get("max_height")
+    filtered = [p for p in plant_database if (not forms or p.get("form") in forms)]
+    if max_height is not None:
+        filtered = [p for p in filtered if p.get("height_ft", 0) <= max_height]
+    return filtered or plant_database
+
+def style_priority_score(plant, design_style, zone_intent=None):
+    settings = STYLE_LOGIC.get(design_style, STYLE_LOGIC["Wild / Naturalized"])
+    intent = INTENT_LOGIC.get(zone_intent, {})
+    role_boost = settings.get("role_boost", {}).get(plant.get("role"), 1.0) * intent.get("role_boost", {}).get(plant.get("role"), 1.0)
+    form_priority = settings.get("form_priority", [])
+    form_score = 0
+    if form_priority and plant.get("form") in form_priority:
+        form_score = len(form_priority) - form_priority.index(plant.get("form"))
+    visual_score = float(plant.get("visual_weight", 1))
+    weight_score = float(plant.get("weight", 1))
+    return (visual_score * 1.5 + weight_score * 0.8 + form_score * 1.6) * role_boost
+
+def limit_palette_by_style(plant_database, design_style, zone_intent=None):
+    if not plant_database:
+        return []
+    species_limit = STYLE_LOGIC.get(design_style, STYLE_LOGIC["Wild / Naturalized"]).get("species_limit", 8)
+    sorted_plants = sorted(plant_database, key=lambda p: -style_priority_score(p, design_style, zone_intent))
+    selected = sorted_plants[:species_limit]
+    if design_style == "Meadow":
+        grasses = [p for p in sorted_plants if p.get("form") == "Grass"]
+        min_grasses = min(len(grasses), max(2, int(round(species_limit * 0.6))))
+        selected = grasses[:min_grasses]
+        for p in sorted_plants:
+            if p not in selected and len(selected) < species_limit:
+                selected.append(p)
+    return selected
+
+def weighted_choice(plants, design_style=None, zone_intent=None):
+    if not plants:
+        return None
+    weights = [max(0.1, style_priority_score(p, design_style or "Wild / Naturalized", zone_intent)) for p in plants]
+    return random.choices(plants, weights=weights, k=1)[0]
+
+def plant_conflict(x, y, r, plant, placed, spacing_factor, feet_per_canvas_unit, root_buffer_ft):
+    for p in placed:
+        existing = p["plant"]
+        dist = math.dist((x, y), (p["x"], p["y"]))
+        min_dist = (r + p["radius"]) * spacing_factor
+
+        # Root-zone correction: tree/shrub anchors create a larger keep-clear buffer.
+        current_is_small = plant.get("form") not in ["Tree", "Shrub"]
+        existing_is_small = existing.get("form") not in ["Tree", "Shrub"]
+        current_anchor = plant.get("form") in ["Tree", "Shrub"] or plant.get("allows_underplanting", False)
+        existing_anchor = existing.get("form") in ["Tree", "Shrub"] or existing.get("allows_underplanting", False)
+
+        root_buffer_units = root_buffer_ft / feet_per_canvas_unit
+        if existing_anchor and current_is_small:
+            min_dist = max(min_dist, p["radius"] + r + root_buffer_units)
+        if current_anchor and existing_is_small:
+            min_dist = max(min_dist, r + p["radius"] + root_buffer_units)
+
+        if dist < min_dist:
+            return True
+    return False
+
+def point_in_any_keepout(x, y, r, keepout_polys):
+    circle = Point(x, y).buffer(r)
+    return any(circle.intersects(kp) for kp in keepout_polys if kp is not None and not kp.is_empty)
+
+def pack_zone(zone, zone_poly, plant_pool, target_coverage, spacing_factor, max_plants_total, existing_locked, keepout_polys, design_style, feet_per_canvas_unit, root_buffer_ft):
+    if zone["intent"] in ["Existing Tree Root Zone / Keep-Out", "No Plant Zone / Keep-Out"]:
+        return [], 0
+    plants = filter_plants_by_style(plant_pool, design_style)
+    plants = filter_plants_by_intent(plants, zone["intent"])
+    plants = limit_palette_by_style(plants, design_style, zone["intent"])
+    if not plants:
+        return [], 0
+
+    minx, miny, maxx, maxy = zone_poly.bounds
+    zone_target = zone_poly.area * target_coverage * INTENT_LOGIC.get(zone["intent"], {}).get("density_boost", 1.0)
+    placed = []
+    placed_area = 0
+    attempts = 0
+    max_attempts = 18000
+    all_existing = list(existing_locked)
+
+    while placed_area < zone_target and attempts < max_attempts and len(placed) < max_plants_total:
+        attempts += 1
+        plant = weighted_choice(plants, design_style, zone["intent"])
+        if plant is None:
+            break
+        r = plant["radius"]
+        if maxx - minx < r * 2 or maxy - miny < r * 2:
+            continue
+        x = random.uniform(minx + r, maxx - r)
+        y = random.uniform(miny + r, maxy - r)
+        if not circle_inside(zone_poly, x, y, r):
+            continue
+        if point_in_any_keepout(x, y, r, keepout_polys):
+            continue
+        if plant_conflict(x, y, r, plant, all_existing + placed, spacing_factor, feet_per_canvas_unit, root_buffer_ft):
+            continue
+        item = {
+            "id": f"{zone['id']}-{len(placed)+1:03d}",
+            "zone_id": zone["id"],
+            "zone_name": zone["name"],
+            "zone_intent": zone["intent"],
+            "x": x,
+            "y": y,
+            "radius": r,
+            "plant": plant,
+            "locked": False,
+            "deleted": False,
+        }
+        placed.append(item)
+        placed_area += math.pi * (r ** 2)
+    return placed, placed_area / zone_poly.area if zone_poly.area > 0 else 0
+
+def generate_concept(zones, plant_pool, style, target_coverage, spacing_factor, max_plants_total, feet_per_canvas_unit, root_buffer_ft, locked_items=None):
+    locked_items = locked_items or []
+    keepout_polys = []
+    plant_zones = []
+    for z in zones:
+        poly = normalize_polygon(z["points"])
+        if poly is None:
+            continue
+        if z["intent"] in ["Existing Tree Root Zone / Keep-Out", "No Plant Zone / Keep-Out"]:
+            keepout_polys.append(poly)
+        else:
+            plant_zones.append((z, poly))
+
+    placed = [deepcopy(p) for p in locked_items if not p.get("deleted", False)]
+    coverage_by_zone = {}
+    max_per_zone = max(12, int(max_plants_total / max(1, len(plant_zones))))
+    for zone, poly in plant_zones:
+        zone_locked = [p for p in placed if p.get("zone_id") == zone["id"]]
+        new_items, coverage = pack_zone(zone, poly, plant_pool, target_coverage, spacing_factor, max_per_zone, placed, keepout_polys, style, feet_per_canvas_unit, root_buffer_ft)
+        placed.extend(new_items)
+        coverage_by_zone[zone["name"]] = coverage
+
+    return {
+        "style": style,
+        "items": placed,
+        "coverage_by_zone": coverage_by_zone,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+def render_site_overlay(image, zones, active_points, canvas_width, canvas_height):
+    if image is None:
+        base = Image.new("RGB", (canvas_width, canvas_height), "#f7f7f2")
+    else:
+        base = image.copy().convert("RGB").resize((canvas_width, canvas_height))
+    draw = ImageDraw.Draw(base)
+
+    colors = {
+        "Foundation Planting": (46, 125, 50),
+        "Entry Garden": (25, 118, 210),
+        "Pool Planting": (0, 121, 107),
+        "Privacy Screen": (85, 139, 47),
+        "Property Buffer": (124, 179, 66),
+        "Pollinator Garden": (171, 71, 188),
+        "Meadow / Ground Plane": (251, 140, 0),
+        "Woodland Understory": (93, 64, 55),
+        "Existing Tree Root Zone / Keep-Out": (198, 40, 40),
+        "No Plant Zone / Keep-Out": (198, 40, 40),
+    }
+    for idx, z in enumerate(zones):
+        pts = z.get("points", [])
+        if len(pts) >= 2:
+            c = colors.get(z.get("intent"), (0, 0, 0))
+            closed = pts + [pts[0]] if len(pts) >= 3 else pts
+            draw.line(closed, fill=c, width=4)
+            for x, y in pts:
+                draw.ellipse((x-4, y-4, x+4, y+4), fill=c, outline=(255,255,255), width=1)
+            label = f"{z.get('name','Zone')} • {z.get('intent','')}"
+            draw.text((pts[0][0] + 8, pts[0][1] + 8), label, fill=c)
+
+    if len(active_points) >= 2:
+        draw.line(active_points, fill=(255,255,255), width=3)
+        if len(active_points) >= 3:
+            draw.line([active_points[-1], active_points[0]], fill=(255,255,255), width=2)
+    for idx, (x, y) in enumerate(active_points):
+        draw.ellipse((x-5, y-5, x+5, y+5), fill=(255, 80, 80), outline=(255,255,255), width=2)
+        draw.text((x+7, y-7), str(idx+1), fill=(255,255,255))
+    return base
+
+def draw_grid(ax, canvas_width, canvas_height, grid_spacing_units):
+    x = 0
+    while x <= canvas_width:
+        ax.axvline(x, linewidth=0.4, alpha=0.2, zorder=1)
+        x += grid_spacing_units
+    y = 0
+    while y <= canvas_height:
+        ax.axhline(y, linewidth=0.4, alpha=0.2, zorder=1)
+        y += grid_spacing_units
+
+def render_plan(concept, zones, background_image, canvas_width, canvas_height, grid_spacing_units):
+    fig, ax = plt.subplots(figsize=(12, 8))
+    if background_image is not None:
+        ax.imshow(background_image, extent=(0, canvas_width, canvas_height, 0), alpha=0.35, zorder=0)
+    else:
+        ax.set_facecolor("#f7f7f2")
+    draw_grid(ax, canvas_width, canvas_height, grid_spacing_units)
+
+    for z in zones:
+        pts = z.get("points", [])
+        if len(pts) >= 3:
+            xs, ys = zip(*(pts + [pts[0]]))
+            linestyle = "--" if z["intent"] in ["Existing Tree Root Zone / Keep-Out", "No Plant Zone / Keep-Out"] else "-"
+            ax.plot(xs, ys, linewidth=2, linestyle=linestyle, zorder=3)
+            ax.text(pts[0][0], pts[0][1], z["name"], fontsize=8, zorder=5)
+
+    for item in concept["items"]:
+        if item.get("deleted", False):
+            continue
+        plant = item["plant"]
+        circle = plt.Circle((item["x"], item["y"]), item["radius"], fill=False, linewidth=1.4 if item.get("locked") else 1.0, linestyle="--" if plant.get("form") in ["Tree", "Shrub"] else "-", zorder=4)
+        ax.add_patch(circle)
+        label = plant["code"] + ("🔒" if item.get("locked") else "")
+        ax.text(item["x"], item["y"], label, ha="center", va="center", fontsize=7, fontweight="bold" if item.get("locked") else "normal", zorder=5)
+
+    ax.set_xlim(0, canvas_width)
+    ax.set_ylim(canvas_height, 0)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    return fig
+
+def get_image_aspect_ratio(image_path):
+    try:
+        img = plt.imread(image_path)
+        h, w = img.shape[:2]
+        return w / h if h else 1
+    except Exception:
+        return 1
+
+def varied_height(plant):
+    tol = HEIGHT_VARIATION_BY_HIERARCHY.get(plant.get("hierarchy"), 0.08)
+    return plant.get("elevation_height", 40) * random.uniform(1 - tol, 1 + tol)
+
+def render_elevation(concept, canvas_width):
+    fig, ax = plt.subplots(figsize=(12, 4))
+    placed = sorted([p for p in concept["items"] if not p.get("deleted", False)], key=lambda item: item["x"])
+    for item in placed:
+        plant = item["plant"]
+        height = varied_height(plant)
+        aspect = get_image_aspect_ratio(plant.get("image", ""))
+        width = height * aspect
+        image_path = plant.get("image", "")
+        if os.path.exists(image_path):
+            img = plt.imread(image_path)
+            ax.imshow(img, extent=(item["x"] - width / 2, item["x"] + width / 2, 0, height), zorder=2)
+        else:
+            ax.text(item["x"], height / 2, plant["code"], ha="center", va="center", fontsize=8)
+    ax.axhline(0, linewidth=1)
+    ax.set_xlim(0, canvas_width)
+    ax.set_ylim(0, 150)
+    ax.axis("off")
+    return fig
 
 def escape_svg_text(value):
     return html.escape(str(value), quote=True)
 
-
-def plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit):
-    """Create a clean vector SVG of the plan geometry.
-
-    This avoids relying on Matplotlib's SVG output and gives you true circle/vector objects.
-    """
-    path_points = " ".join([f"{x:.2f},{y:.2f}" for x, y in points])
+def plan_to_svg(concept, zones, canvas_width, canvas_height, feet_per_canvas_unit):
     svg = StringIO()
     svg.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_width}" height="{canvas_height}" viewBox="0 0 {canvas_width} {canvas_height}">\n')
     svg.write('<rect width="100%" height="100%" fill="white"/>\n')
-    svg.write(f'<polygon points="{path_points}" fill="none" stroke="black" stroke-width="2"/>\n')
-
-    for item in placed_instances:
+    for z in zones:
+        pts = z.get("points", [])
+        if len(pts) < 3:
+            continue
+        path = " ".join([f"{x:.2f},{y:.2f}" for x, y in pts])
+        dash = ' stroke-dasharray="6 4"' if z["intent"] in ["Existing Tree Root Zone / Keep-Out", "No Plant Zone / Keep-Out"] else ""
+        svg.write(f'<polygon points="{path}" fill="none" stroke="black" stroke-width="1.5"{dash}/>\n')
+        svg.write(f'<text x="{pts[0][0]:.2f}" y="{pts[0][1]:.2f}" font-family="Arial" font-size="10">{escape_svg_text(z["name"])} - {escape_svg_text(z["intent"])}</text>\n')
+    for item in concept["items"]:
+        if item.get("deleted", False):
+            continue
         plant = item["plant"]
-        dash = ' stroke-dasharray="6 4"' if plant.get("allows_underplanting", False) else ""
-        weight = "bold" if plant.get("allows_underplanting", False) else "normal"
+        dash = ' stroke-dasharray="6 4"' if plant.get("form") in ["Tree", "Shrub"] else ""
         svg.write(f'<circle cx="{item["x"]:.2f}" cy="{item["y"]:.2f}" r="{item["radius"]:.2f}" fill="none" stroke="black" stroke-width="1.2"{dash}/>\n')
-        svg.write(f'<text x="{item["x"]:.2f}" y="{item["y"]:.2f}" text-anchor="middle" dominant-baseline="middle" font-family="Arial" font-size="8" font-weight="{weight}">{escape_svg_text(plant["code"])}</text>\n')
-
+        svg.write(f'<text x="{item["x"]:.2f}" y="{item["y"]:.2f}" text-anchor="middle" dominant-baseline="middle" font-family="Arial" font-size="8">{escape_svg_text(plant["code"])}</text>\n')
     svg.write(f'<text x="12" y="{canvas_height - 14}" font-family="Arial" font-size="10">Scale: 1 px = {feet_per_canvas_unit:.3f} ft</text>\n')
     svg.write('</svg>')
     return BytesIO(svg.getvalue().encode("utf-8"))
 
-
-def plan_to_dxf(points, placed_instances, feet_per_canvas_unit):
-    """Export a simple ASCII DXF in real feet.
-
-    AutoCAD, Rhino, Vectorworks, and many CAD tools can open DXF. This is the practical
-    Streamlit-friendly alternative to DWG.
-    """
+def plan_to_dxf(concept, zones, feet_per_canvas_unit):
     dxf = StringIO()
     dxf.write("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n2\n0\nENDSEC\n")
-    dxf.write("0\nSECTION\n2\nTABLES\n0\nENDSEC\n")
-    dxf.write("0\nSECTION\n2\nENTITIES\n")
-
-    closed_points = points + [points[0]]
-    for i in range(len(closed_points) - 1):
-        x1, y1 = closed_points[i]
-        x2, y2 = closed_points[i + 1]
-        dxf.write("0\nLINE\n8\nBOUNDARY\n")
-        dxf.write(f"10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n")
-        dxf.write(f"11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
-
-    for item in placed_instances:
+    dxf.write("0\nSECTION\n2\nTABLES\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n")
+    for z in zones:
+        pts = z.get("points", [])
+        if len(pts) < 3:
+            continue
+        layer = "KEEP_OUT" if z["intent"] in ["Existing Tree Root Zone / Keep-Out", "No Plant Zone / Keep-Out"] else "PLANTING_ZONE"
+        closed = pts + [pts[0]]
+        for i in range(len(closed) - 1):
+            x1, y1 = closed[i]
+            x2, y2 = closed[i+1]
+            dxf.write(f"0\nLINE\n8\n{layer}\n10\n{x1 * feet_per_canvas_unit:.4f}\n20\n{y1 * feet_per_canvas_unit:.4f}\n30\n0\n11\n{x2 * feet_per_canvas_unit:.4f}\n21\n{y2 * feet_per_canvas_unit:.4f}\n31\n0\n")
+    for item in concept["items"]:
+        if item.get("deleted", False):
+            continue
         plant = item["plant"]
         dxf.write("0\nCIRCLE\n8\nPLANTS\n")
-        dxf.write(f"10\n{item['x'] * feet_per_canvas_unit:.4f}\n20\n{item['y'] * feet_per_canvas_unit:.4f}\n30\n0\n")
-        dxf.write(f"40\n{item['radius'] * feet_per_canvas_unit:.4f}\n")
+        dxf.write(f"10\n{item['x'] * feet_per_canvas_unit:.4f}\n20\n{item['y'] * feet_per_canvas_unit:.4f}\n30\n0\n40\n{item['radius'] * feet_per_canvas_unit:.4f}\n")
         dxf.write("0\nTEXT\n8\nPLANT_CODES\n")
-        dxf.write(f"10\n{item['x'] * feet_per_canvas_unit:.4f}\n20\n{item['y'] * feet_per_canvas_unit:.4f}\n30\n0\n")
-        dxf.write("40\n0.35\n")
-        dxf.write(f"1\n{plant['code']}\n")
-
+        dxf.write(f"10\n{item['x'] * feet_per_canvas_unit:.4f}\n20\n{item['y'] * feet_per_canvas_unit:.4f}\n30\n0\n40\n0.35\n1\n{plant['code']}\n")
     dxf.write("0\nENDSEC\n0\nEOF\n")
     return BytesIO(dxf.getvalue().encode("utf-8"))
 
+def schedule_dataframe(concept, state):
+    counts = {}
+    for item in concept["items"]:
+        if item.get("deleted", False):
+            continue
+        plant = item["plant"]
+        counts[plant["name"]] = counts.get(plant["name"], 0) + 1
+    rows = []
+    for plant_name, count in counts.items():
+        plant = next(p for p in PLANTS if p["name"] == plant_name)
+        rows.append({
+            "Code": plant["code"], "Count": count, "Botanical Name": plant["name"], "Common Name": plant["common_name"],
+            "Form": plant["form"], "Role": plant["role"], "Spread Ft": plant["spread_ft"], "Height Ft": plant["height_ft"],
+            "Plant Region": state, "Sun": ", ".join(plant["sun"]), "Water": ", ".join(plant["water"]), "Seasonality": plant["seasonality"]
+        })
+    return pd.DataFrame(rows)
+
+def editable_items_dataframe(concept, feet_per_canvas_unit):
+    rows = []
+    for item in concept["items"]:
+        plant = item["plant"]
+        rows.append({
+            "id": item["id"],
+            "Zone": item.get("zone_name"),
+            "Intent": item.get("zone_intent"),
+            "Code": plant["code"],
+            "Botanical Name": plant["name"],
+            "X Ft": round(item["x"] * feet_per_canvas_unit, 2),
+            "Y Ft": round(item["y"] * feet_per_canvas_unit, 2),
+            "Locked": bool(item.get("locked", False)),
+            "Delete": bool(item.get("deleted", False)),
+        })
+    return pd.DataFrame(rows)
+
+def apply_edit_dataframe(concept, edited_df, runtime_plants, feet_per_canvas_unit):
+    plant_by_name = {p["name"]: p for p in runtime_plants}
+    by_id = {item["id"]: item for item in concept["items"]}
+    for _, row in edited_df.iterrows():
+        item_id = row.get("id")
+        if item_id not in by_id:
+            continue
+        item = by_id[item_id]
+        if row.get("Botanical Name") in plant_by_name:
+            item["plant"] = plant_by_name[row.get("Botanical Name")]
+            item["radius"] = item["plant"]["radius"]
+        try:
+            item["x"] = float(row.get("X Ft")) / feet_per_canvas_unit
+            item["y"] = float(row.get("Y Ft")) / feet_per_canvas_unit
+        except Exception:
+            pass
+        item["locked"] = bool(row.get("Locked"))
+        item["deleted"] = bool(row.get("Delete"))
+    return concept
+
 # -----------------------------
-# Sidebar
+# SIDEBAR
 # -----------------------------
 
 with st.sidebar:
     st.markdown("### by The Landscape Library")
+    st.markdown("**YODRA Site Concept Generator**")
+    st.caption("Upload a full site plan, draw multiple planting zones, generate 3 concepts, edit, lock, regenerate, and export.")
 
-    st.header("Input Method")
-    input_method = st.radio(
-        "Choose how to define the planting bed",
-        ["Draw Boundary", "Upload JPEG Image"],
-        index=0
-    )
+    st.divider()
+    generate = st.button("Generate 3 Site Concepts", use_container_width=True, type="primary")
 
-    st.info("Max 50' bed")
+    st.header("Site Plan Upload")
+    uploaded_site = st.file_uploader("Upload site plan", type=["pdf", "jpg", "jpeg", "png"])
+    pdf_page = 1
+    if uploaded_site is not None and uploaded_site.name.lower().endswith(".pdf"):
+        pdf_page = st.number_input("PDF page", min_value=1, value=1, step=1)
 
-    if input_method == "Upload JPEG Image":
-        st.caption("Upload a JPEG image as a scaled reference, then click points around the actual bedline.")
-        uploaded_bed_image = st.file_uploader(
-            "Upload bed image",
-            type=["jpg", "jpeg"]
-        )
+    site_length_ft = st.number_input("Site horizontal dimension (ft)", min_value=1.0, max_value=float(MAX_SITE_FEET), value=float(DEFAULT_SITE_LENGTH_FEET), step=1.0)
+    site_width_ft = st.number_input("Site vertical dimension (ft)", min_value=1.0, max_value=float(MAX_SITE_FEET), value=float(DEFAULT_SITE_WIDTH_FEET), step=1.0)
 
-        bed_length_ft = st.number_input(
-            "Image length / horizontal dimension (ft)",
-            min_value=1.0,
-            max_value=float(MAX_BED_FEET),
-            value=30.0,
-            step=1.0
-        )
-
-        bed_width_ft = st.number_input(
-            "Image width / vertical dimension (ft)",
-            min_value=1.0,
-            max_value=float(MAX_BED_FEET),
-            value=15.0,
-            step=1.0
-        )
-    else:
-        uploaded_bed_image = None
-        bed_length_ft = DEFAULT_BED_LENGTH_FEET
-        bed_width_ft = DEFAULT_BED_WIDTH_FEET
-
-    canvas_width, canvas_height, feet_per_canvas_unit, grid_spacing_units = get_canvas_setup(
-        bed_length_ft,
-        bed_width_ft
-    )
+    canvas_width, canvas_height, feet_per_canvas_unit, grid_spacing_units = get_canvas_setup(site_length_ft, site_width_ft)
 
     st.header("Site Parameters")
+    state = st.selectbox("Plant Region", ["California"])
+    usda_zone_options = list(range(5, 11))
+    selected_usda_zones = []
+    zone_cols = st.columns(3)
+    for idx, zone in enumerate(usda_zone_options):
+        with zone_cols[idx % 3]:
+            if st.checkbox(f"Zone {zone}", value=(zone == 9), key=f"usda_zone_{zone}"):
+                selected_usda_zones.append(zone)
 
-    state = st.selectbox("State", ["California"])
-    climate = st.selectbox("Climate", ["Coastal", "Inland", "Dry", "Woodland"])
-
-    sun = st.selectbox(
-        "Sun Exposure",
-        ["Full Sun", "Full Sun-Part Shade", "Part Shade", "Part Shade-Full Shade"]
-    )
-
-    water = st.selectbox(
-        "Water Needs",
-        ["Low", "Moderate-Low", "Low-Moderate", "Moderate"]
-    )
-
-    st.header("Design Style")
-
-    style = st.selectbox(
-        "Style",
-        ["Naturalistic", "Contemporary", "Formal"]
-    )
-
-    st.header("Density")
-
-    density = st.selectbox(
-        "Coverage Density",
-        ["Low", "Moderate", "Dense", "Very Dense"]
-    )
+    sun = st.selectbox("Sun Exposure", ["Full Sun", "Full Sun-Part Shade", "Part Shade", "Part Shade-Full Shade"])
+    water = st.selectbox("Water Needs", ["Low", "Moderate-Low", "Low-Moderate", "Moderate"])
+    density = st.selectbox("Coverage Density", ["Low", "Moderate", "Dense", "Very Dense"], index=1)
+    root_buffer_ft = st.slider("Tree/shrub root-zone clearance", min_value=0.0, max_value=10.0, value=4.0, step=0.5)
 
     target_coverage = DENSITY_OPTIONS[density]
-    spacing_factor = SPACING_BY_DENSITY[density]
+    base_spacing_factor = SPACING_BY_DENSITY[density]
     max_plants_total = MAX_PLANTS_BY_DENSITY[density]
 
-    st.header("Scale")
-    st.caption(f"Bed limit: {MAX_BED_FEET} ft max length or width")
-    st.caption(f"Active bed: {bed_length_ft:.0f} ft x {bed_width_ft:.0f} ft")
-    st.caption(f"Grid: 1 square = {GRID_SPACING_FEET} ft")
+    st.header("Plant Controls")
+    runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
+    filtered_base = filter_plants(runtime_plants, state, selected_usda_zones, sun, water)
+    include_names = st.multiselect("Force include plants", [p["name"] for p in runtime_plants])
+    exclude_names = st.multiselect("Exclude plants", [p["name"] for p in filtered_base])
+
+    filtered_base = [p for p in filtered_base if p["name"] not in exclude_names]
+    for p in runtime_plants:
+        if p["name"] in include_names and p["name"] not in [x["name"] for x in filtered_base]:
+            filtered_base.append(p)
+
+    st.divider()
+    feedback_text = st.text_area("Feedback", placeholder="Share what worked, what felt confusing, or what you want improved.", height=90)
+    if st.button("Submit Feedback", use_container_width=True):
+        if feedback_text.strip():
+            ok, err = log_event(st.session_state.get("user_email"), "feedback_submitted", sun_exposure=sun, water_needs=water, notes=feedback_text.strip())
+            st.success("Feedback submitted.") if ok else st.error(f"Feedback was not saved: {err}")
+        else:
+            st.warning("Enter feedback before submitting.")
 
 # -----------------------------
-# Active plant database + image prep
+# ACTIVE IMAGE
 # -----------------------------
 
-runtime_plants = make_runtime_plant_pool(PLANTS, feet_per_canvas_unit)
-selected_plants = filter_plants(runtime_plants, state, climate, sun, water, style)
-background_image = None
-background_array = None
-
-if input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-    background_image, background_array = prepare_uploaded_image(uploaded_bed_image, canvas_width, canvas_height)
+site_image_raw = uploaded_file_to_image(uploaded_site, int(pdf_page)) if uploaded_site is not None else None
+site_image = resize_image_to_canvas(site_image_raw, canvas_width, canvas_height) if site_image_raw is not None else None
 
 # -----------------------------
-# Main UI
+# MAIN UI
 # -----------------------------
 
-left, right = st.columns([2, 1])
+left, right = st.columns([2.2, 1])
 
 with left:
-    if input_method == "Draw Boundary":
-        st.subheader("1. Draw Planting Boundary")
-        st.caption(f"Draw within the {MAX_BED_FEET} ft max bed area. Each grid square represents {GRID_SPACING_FEET} ft.")
+    st.subheader("1. Upload Full Site Plan + Draw Planting Zones")
+    st.link_button("Watch Tutorial Here →", TUTORIAL_URL)
+    st.markdown("""
+    <div class="yodra-tip">
+        <strong>TIP:</strong> Upload a PDF, JPEG, or PNG site plan. Click around each planting area, assign a zoning design intent, then save the zone. Add keep-out/root-zone areas where YODRA should not place plants.
+    </div>
+    """, unsafe_allow_html=True)
 
-        canvas_result = st_canvas(
-            fill_color="rgba(0, 0, 0, 0)",
-            stroke_width=3,
-            stroke_color="#111111",
-            background_color="#f7f7f2",
-            height=canvas_height,
-            width=canvas_width,
-            drawing_mode="polygon",
-            key="draw_boundary_canvas",
-        )
+    if streamlit_image_coordinates is None:
+        st.error("Missing package: streamlit-image-coordinates. Add `streamlit-image-coordinates` to requirements.txt.")
     else:
-        st.subheader("1. Upload Scaled Bed Image + Trace Bedline")
-        st.caption("Upload the JPEG as a scaled reference, then click points around the actual planting bed boundary inside the image. Plants will only generate inside the traced polygon, not across the full image rectangle.")
+        overlay = render_site_overlay(site_image, st.session_state.zones, st.session_state.active_zone_points, canvas_width, canvas_height)
+        clicked = streamlit_image_coordinates(overlay, key=f"site_click_{uploaded_site.name if uploaded_site else 'blank'}_{canvas_width}_{canvas_height}", width=canvas_width)
+        if clicked is not None and "x" in clicked and "y" in clicked:
+            new_point = (int(clicked["x"]), int(clicked["y"]))
+            if st.session_state.last_click != new_point:
+                if len(st.session_state.active_zone_points) == 0 or math.dist(st.session_state.active_zone_points[-1], new_point) > 4:
+                    st.session_state.active_zone_points.append(new_point)
+                st.session_state.last_click = new_point
+                st.rerun()
 
-        if uploaded_bed_image is None:
-            st.warning("Upload a JPEG image first, then click points around the actual bedline.")
-            canvas_result = None
-        else:
-            canvas_result = None
-
-            if streamlit_image_coordinates is None:
-                st.error("Missing package: streamlit-image-coordinates. Add streamlit-image-coordinates to requirements.txt, then redeploy.")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        zone_name = st.text_input("Zone name", value=f"Zone {len(st.session_state.zones) + 1}")
+    with c2:
+        zone_intent = st.selectbox("Zoning design intent", ZONE_INTENTS)
+    with c3:
+        if st.button("Save Zone"):
+            if len(st.session_state.active_zone_points) < 3:
+                st.warning("Add at least 3 points before saving a zone.")
             else:
-                trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-                last_click_key = f"last_click_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
+                st.session_state.zones.append({
+                    "id": f"zone_{len(st.session_state.zones) + 1:02d}",
+                    "name": zone_name.strip() or f"Zone {len(st.session_state.zones) + 1}",
+                    "intent": zone_intent,
+                    "points": list(st.session_state.active_zone_points),
+                })
+                st.session_state.active_zone_points = []
+                st.session_state.last_click = None
+                st.session_state.concepts = None
+                st.rerun()
+    with c4:
+        if st.button("Undo Point") and st.session_state.active_zone_points:
+            st.session_state.active_zone_points = st.session_state.active_zone_points[:-1]
+            st.session_state.last_click = None
+            st.rerun()
 
-                if trace_key not in st.session_state:
-                    st.session_state[trace_key] = []
-                if last_click_key not in st.session_state:
-                    st.session_state[last_click_key] = None
+    z1, z2, z3 = st.columns(3)
+    with z1:
+        if st.button("Clear Active Zone"):
+            st.session_state.active_zone_points = []
+            st.session_state.last_click = None
+            st.rerun()
+    with z2:
+        if st.button("Remove Last Saved Zone") and st.session_state.zones:
+            st.session_state.zones = st.session_state.zones[:-1]
+            st.session_state.concepts = None
+            st.rerun()
+    with z3:
+        if st.button("Clear All Zones"):
+            st.session_state.zones = []
+            st.session_state.active_zone_points = []
+            st.session_state.last_click = None
+            st.session_state.concepts = None
+            st.rerun()
 
-                st.caption("Click points around the bedline in order. Use more points for curves. The final segment closes automatically between the last and first point.")
-
-                overlay_image = render_trace_overlay(
-                    background_image,
-                    st.session_state[trace_key],
-                    canvas_width,
-                    canvas_height
-                )
-
-                clicked = streamlit_image_coordinates(
-                    overlay_image,
-                    key=f"click_trace_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}",
-                    width=canvas_width
-                )
-
-                if clicked is not None and "x" in clicked and "y" in clicked:
-                    new_point = (int(clicked["x"]), int(clicked["y"]))
-
-                    if st.session_state[last_click_key] != new_point:
-                        existing_points = st.session_state[trace_key]
-
-                        # Prevent accidental double-click duplicates.
-                        if len(existing_points) == 0 or math.dist(existing_points[-1], new_point) > 4:
-                            existing_points.append(new_point)
-                            st.session_state[trace_key] = existing_points
-
-                        st.session_state[last_click_key] = new_point
-                        st.rerun()
-
-                b1, b2, b3 = st.columns(3)
-                with b1:
-                    if st.button("Undo Last Point") and len(st.session_state[trace_key]) > 0:
-                        st.session_state[trace_key] = st.session_state[trace_key][:-1]
-                        st.session_state[last_click_key] = None
-                        st.rerun()
-                with b2:
-                    if st.button("Clear Trace"):
-                        st.session_state[trace_key] = []
-                        st.session_state[last_click_key] = None
-                        st.rerun()
-                with b3:
-                    st.metric("Trace Points", len(st.session_state[trace_key]))
-
-                if len(st.session_state[trace_key]) < 3:
-                    st.info("Add at least 3 points before generating the planting layout.")
+    if st.session_state.zones:
+        st.subheader("Saved Zones")
+        zones_df = pd.DataFrame([{"Zone": z["name"], "Intent": z["intent"], "Points": len(z["points"]), "Approx. SF": round(canvas_area_to_sqft(normalize_polygon(z["points"]).area, feet_per_canvas_unit)) if normalize_polygon(z["points"]) else 0} for z in st.session_state.zones])
+        st.dataframe(zones_df, width="stretch", hide_index=True)
 
 with right:
-    st.subheader("2. Selected Plant Palette")
-
-    if len(selected_plants) == 0:
-        st.warning("No plants match these parameters yet. Try adjusting sun exposure, water needs, or style.")
+    st.markdown("<div class='yodra-section-title'>Selected Plant Palette</div>", unsafe_allow_html=True)
+    if not filtered_base:
+        st.warning("No plants match these parameters yet.")
     else:
-        for plant in selected_plants:
-            canopy_note = " | allows underplanting" if plant.get("allows_underplanting", False) else ""
-            st.write(f"**{plant['name']}**")
-            st.caption(
-                f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | spread: {plant['spread_ft']} ft{canopy_note}"
-            )
+        for plant in filtered_base:
+            st.markdown(f"<div class='yodra-plant-name'>{plant['name']}</div>", unsafe_allow_html=True)
+            st.caption(f"{plant['code']} | {plant['common_name']} | {plant['form']} | {plant['role']} | spread: {plant['spread_ft']} ft")
+
+    st.divider()
+    st.markdown("<div class='yodra-section-title'>Don't See Your Region?</div>", unsafe_allow_html=True)
+    requested_region = st.text_input("Region", placeholder="Example: Texas, Florida, Pacific Northwest")
+    requested_city = st.text_input("City", placeholder="Example: Austin")
+    if st.button("Submit Region Request"):
+        if requested_region.strip() and requested_city.strip():
+            ok, err = log_region_request(st.session_state.get("user_email"), requested_region, requested_city, design_style="Site Concepts")
+            st.success("Region request submitted.") if ok else st.error(f"Region request was not saved: {err}")
+        else:
+            st.warning("Enter both a region and city.")
 
 # -----------------------------
-# Boundary metrics
+# GENERATE 3 CONCEPTS
 # -----------------------------
-
-points_preview = None
-
-if input_method == "Draw Boundary" and canvas_result is not None:
-    points_preview = get_polygon_from_canvas(canvas_result.json_data)
-elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-    trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-    points_preview = st.session_state.get(trace_key, [])
-    if len(points_preview) < 3:
-        points_preview = None
-
-if points_preview is not None:
-    preview_poly = Polygon(points_preview)
-
-    if not preview_poly.is_valid:
-        preview_poly = preview_poly.buffer(0)
-
-    if preview_poly.area > 0:
-        area_sqft = canvas_area_to_sqft(preview_poly.area, feet_per_canvas_unit)
-        perimeter_ft = canvas_length_to_feet(preview_poly.length, feet_per_canvas_unit)
-        minx_preview, miny_preview, maxx_preview, maxy_preview = preview_poly.bounds
-
-        width_ft = canvas_length_to_feet(maxx_preview - minx_preview, feet_per_canvas_unit)
-        depth_ft = canvas_length_to_feet(maxy_preview - miny_preview, feet_per_canvas_unit)
-
-        st.subheader("Boundary Metrics")
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Approx. Area", f"{area_sqft:,.0f} sq ft")
-        c2.metric("Approx. Perimeter", f"{perimeter_ft:,.0f} ft")
-        c3.metric("Approx. Length", f"{width_ft:,.0f} ft")
-        c4.metric("Approx. Width", f"{depth_ft:,.0f} ft")
-
-generate = st.button("Generate Planting Layout", type="primary")
-
-# -----------------------------
-# Generate + Persist Output State
-# -----------------------------
-# Streamlit reruns the script after every widget interaction, including download clicks.
-# These session_state keys keep the current generated scheme available so users can
-# download PNG, SVG, DXF, and elevation files without losing the current layout.
-
-if "generated_scheme" not in st.session_state:
-    st.session_state.generated_scheme = None
 
 if generate:
-    try:
-        with st.spinner("Generating planting plan and elevation view..."):
-            if input_method == "Draw Boundary" and canvas_result is not None:
-                points = get_polygon_from_canvas(canvas_result.json_data)
-            elif input_method == "Upload JPEG Image" and uploaded_bed_image is not None:
-                trace_key = f"trace_points_{uploaded_bed_image.name}_{canvas_width}_{canvas_height}"
-                points = st.session_state.get(trace_key, [])
-                if len(points) < 3:
-                    points = None
-            else:
-                points = None
+    if supabase is not None and st.session_state.get("user_email"):
+        user_check = supabase.table("users").select("*").eq("email", st.session_state.user_email).execute()
+        current_user = user_check.data[0] if user_check.data else {}
+        if not current_user.get("paid_status", False) and (current_user.get("total_generations") or 0) >= FREE_GENERATION_LIMIT:
+            st.warning("You have reached the free generation limit.")
+            log_event(st.session_state.user_email, "paywall_shown")
+            st.stop()
 
-            if points is None:
-                if input_method == "Draw Boundary":
-                    st.warning("Draw a closed polygon boundary first.")
-                else:
-                    st.warning("Upload a JPEG image and trace a closed polygon boundary first.")
+    if not st.session_state.zones:
+        st.warning("Save at least one planting zone before generating concepts.")
+    elif not filtered_base:
+        st.warning("No plants are available for the selected parameters.")
+    else:
+        with st.spinner("Generating 3 site concepts with plan and elevation views..."):
+            random.seed()
+            concepts = []
+            for style in CONCEPT_STYLES:
+                spacing = base_spacing_factor * STYLE_LOGIC[style]["spacing_multiplier"]
+                concepts.append(generate_concept(
+                    zones=st.session_state.zones,
+                    plant_pool=filtered_base,
+                    style=style,
+                    target_coverage=target_coverage,
+                    spacing_factor=spacing,
+                    max_plants_total=max_plants_total,
+                    feet_per_canvas_unit=feet_per_canvas_unit,
+                    root_buffer_ft=root_buffer_ft,
+                    locked_items=[]
+                ))
+            st.session_state.concepts = concepts
+            increment_generation_count(st.session_state.get("user_email"))
+            log_event(st.session_state.get("user_email"), "three_concepts_generated", sun_exposure=sun, water_needs=water, design_style=", ".join(CONCEPT_STYLES), notes=f"Zones: {len(st.session_state.zones)}; Density: {density}")
+            st.rerun()
 
-            elif bed_length_ft > MAX_BED_FEET or bed_width_ft > MAX_BED_FEET:
-                st.warning(f"The bed is too large. Keep the image dimensions at or below {MAX_BED_FEET} ft.")
+# -----------------------------
+# CONCEPT RESULTS + EDITING
+# -----------------------------
 
-            elif len(selected_plants) == 0:
-                st.warning("No plants are available for the selected site parameters.")
+if st.session_state.concepts:
+    st.subheader("2. Compare 3 Concepts")
+    tabs = st.tabs([f"Concept {i+1}: {c['style']}" for i, c in enumerate(st.session_state.concepts)])
 
-            else:
-                poly = Polygon(points)
+    for idx, tab in enumerate(tabs):
+        with tab:
+            concept = st.session_state.concepts[idx]
+            st.markdown(f"### {concept['style']}")
+            st.caption(STYLE_LOGIC[concept["style"]]["description"])
 
-                if not poly.is_valid:
-                    poly = poly.buffer(0)
+            pcol, ecol = st.columns([1.4, 1])
+            with pcol:
+                st.markdown("**Plan View**")
+                plan_fig = render_plan(concept, st.session_state.zones, site_image, canvas_width, canvas_height, grid_spacing_units)
+                st.pyplot(plan_fig)
+            with ecol:
+                st.markdown("**Elevation View**")
+                elev_fig = render_elevation(concept, canvas_width)
+                st.pyplot(elev_fig)
 
-                if poly.area <= 0:
-                    st.warning("The boundary is invalid. Try tracing a clearer closed shape.")
+            st.markdown("### 3. Adjust, Delete, Lock Plants")
+            st.caption("Edit X/Y feet, change species, check Locked, or mark Delete. Locked plants stay fixed when regenerating alternatives.")
+            editable_df = editable_items_dataframe(concept, feet_per_canvas_unit)
+            plant_names = [p["name"] for p in runtime_plants]
+            edited_df = st.data_editor(
+                editable_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "id": st.column_config.TextColumn("ID", disabled=True),
+                    "Zone": st.column_config.TextColumn("Zone", disabled=True),
+                    "Intent": st.column_config.TextColumn("Intent", disabled=True),
+                    "Code": st.column_config.TextColumn("Code", disabled=True),
+                    "Botanical Name": st.column_config.SelectboxColumn("Botanical Name", options=plant_names),
+                    "X Ft": st.column_config.NumberColumn("X Ft", step=0.5),
+                    "Y Ft": st.column_config.NumberColumn("Y Ft", step=0.5),
+                    "Locked": st.column_config.CheckboxColumn("Locked"),
+                    "Delete": st.column_config.CheckboxColumn("Delete"),
+                },
+                key=f"edit_concept_{idx}"
+            )
 
-                else:
-                    placed_instances, actual_coverage = pack_by_hierarchy(
-                        poly=poly,
-                        plant_pool=selected_plants,
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                if st.button("Apply Edits", key=f"apply_edits_{idx}"):
+                    st.session_state.concepts[idx] = apply_edit_dataframe(concept, edited_df, runtime_plants, feet_per_canvas_unit)
+                    st.success("Edits applied.")
+                    st.rerun()
+            with b2:
+                if st.button("Regenerate Around Locked Plants", key=f"regen_locked_{idx}"):
+                    updated = apply_edit_dataframe(concept, edited_df, runtime_plants, feet_per_canvas_unit)
+                    locked = [deepcopy(p) for p in updated["items"] if p.get("locked", False) and not p.get("deleted", False)]
+                    spacing = base_spacing_factor * STYLE_LOGIC[updated["style"]]["spacing_multiplier"]
+                    st.session_state.concepts[idx] = generate_concept(
+                        zones=st.session_state.zones,
+                        plant_pool=filtered_base,
+                        style=updated["style"],
                         target_coverage=target_coverage,
-                        spacing_factor=spacing_factor,
-                        max_plants_total=max_plants_total
+                        spacing_factor=spacing,
+                        max_plants_total=max_plants_total,
+                        feet_per_canvas_unit=feet_per_canvas_unit,
+                        root_buffer_ft=root_buffer_ft,
+                        locked_items=locked,
                     )
+                    st.success("Alternative regenerated around locked plants.")
+                    st.rerun()
+            with b3:
+                if st.button("Use This Concept For Export", key=f"use_concept_{idx}"):
+                    st.session_state.active_concept_index = idx
+                    st.success(f"Concept {idx+1} selected for export.")
 
-                    if len(placed_instances) == 0:
-                        st.warning("No plants could fit inside the boundary. Try a larger area, lower density, or different plant parameters.")
+            st.markdown("### Plant Schedule")
+            schedule_df = schedule_dataframe(concept, state)
+            st.dataframe(schedule_df, width="stretch", hide_index=True)
 
-                    else:
-                        # -----------------------------
-                        # Create Plan Figure
-                        # -----------------------------
-                        fig, ax = plt.subplots(figsize=(10, 10))
+    st.subheader("4. Export Selected Concept")
+    export_concept = st.session_state.concepts[st.session_state.active_concept_index]
+    st.caption(f"Selected export: Concept {st.session_state.active_concept_index + 1} — {export_concept['style']}")
+    export_plan_fig = render_plan(export_concept, st.session_state.zones, site_image, canvas_width, canvas_height, grid_spacing_units)
+    export_elev_fig = render_elevation(export_concept, canvas_width)
+    export_schedule = schedule_dataframe(export_concept, state)
 
-                        if background_array is not None:
-                            ax.imshow(
-                                background_array,
-                                extent=(0, canvas_width, canvas_height, 0),
-                                alpha=0.35,
-                                zorder=0
-                            )
+    exp1, exp2, exp3, exp4, exp5 = st.columns(5)
+    with exp1:
+        st.download_button("Download Plan PNG", data=fig_to_png_bytes(export_plan_fig), file_name="yodra-site-plan.png", mime="image/png", on_click=lambda: increment_export_count(st.session_state.get("user_email")))
+    with exp2:
+        st.download_button("Download Plan SVG", data=plan_to_svg(export_concept, st.session_state.zones, canvas_width, canvas_height, feet_per_canvas_unit), file_name="yodra-site-plan.svg", mime="image/svg+xml", on_click=lambda: increment_export_count(st.session_state.get("user_email")))
+    with exp3:
+        st.download_button("Download Plan DXF", data=plan_to_dxf(export_concept, st.session_state.zones, feet_per_canvas_unit), file_name="yodra-site-plan.dxf", mime="application/dxf", on_click=lambda: increment_export_count(st.session_state.get("user_email")))
+    with exp4:
+        st.download_button("Download Elevation JPEG", data=fig_to_jpeg_bytes(export_elev_fig), file_name="yodra-site-elevation.jpg", mime="image/jpeg", on_click=lambda: increment_export_count(st.session_state.get("user_email")))
+    with exp5:
+        st.download_button("Download Schedule CSV", data=export_schedule.to_csv(index=False).encode("utf-8"), file_name="yodra-plant-schedule.csv", mime="text/csv", on_click=lambda: increment_export_count(st.session_state.get("user_email")))
 
-                        xs, ys = zip(*(points + [points[0]]))
-                        ax.plot(xs, ys, linewidth=2, zorder=3)
-
-                        draw_grid(ax, canvas_width, canvas_height, grid_spacing_units)
-
-                        for item in placed_instances:
-                            plant = item["plant"]
-
-                            if plant.get("allows_underplanting", False):
-                                continue
-
-                            circle = plt.Circle(
-                                (item["x"], item["y"]),
-                                item["radius"],
-                                fill=False,
-                                linewidth=1.2,
-                                zorder=4
-                            )
-                            ax.add_patch(circle)
-
-                            ax.text(
-                                item["x"],
-                                item["y"],
-                                plant["code"],
-                                ha="center",
-                                va="center",
-                                fontsize=8,
-                                zorder=5
-                            )
-
-                        for item in placed_instances:
-                            plant = item["plant"]
-
-                            if not plant.get("allows_underplanting", False):
-                                continue
-
-                            circle = plt.Circle(
-                                (item["x"], item["y"]),
-                                item["radius"],
-                                fill=False,
-                                linewidth=1.5,
-                                linestyle="--",
-                                alpha=0.75,
-                                zorder=4
-                            )
-                            ax.add_patch(circle)
-
-                            ax.text(
-                                item["x"],
-                                item["y"],
-                                plant["code"],
-                                ha="center",
-                                va="center",
-                                fontsize=8,
-                                fontweight="bold",
-                                zorder=5
-                            )
-
-                        ax.set_xlim(0, canvas_width)
-                        ax.set_ylim(canvas_height, 0)
-                        ax.set_aspect("equal")
-                        ax.axis("off")
-
-                        plan_png = fig_to_png_bytes(fig)
-                        plan_svg = plan_to_svg(points, placed_instances, canvas_width, canvas_height, feet_per_canvas_unit)
-                        plan_dxf = plan_to_dxf(points, placed_instances, feet_per_canvas_unit)
-                        plt.close(fig)
-
-                        # -----------------------------
-                        # Create Elevation Figure
-                        # -----------------------------
-                        elev_fig, elev_ax = plt.subplots(figsize=(12, 4))
-
-                        placed_sorted = sorted(placed_instances, key=lambda item: item["x"])
-
-                        for item in placed_sorted:
-                            plant = item["plant"]
-                            image_path = plant["image"]
-
-                            height = varied_height(plant)
-                            aspect_ratio = get_image_aspect_ratio(image_path)
-                            width = height * aspect_ratio
-
-                            if os.path.exists(image_path):
-                                img = plt.imread(image_path)
-
-                                elev_ax.imshow(
-                                    img,
-                                    extent=(
-                                        item["x"] - width / 2,
-                                        item["x"] + width / 2,
-                                        0,
-                                        height
-                                    ),
-                                    zorder=2
-                                )
-                            else:
-                                elev_ax.text(
-                                    item["x"],
-                                    height / 2,
-                                    plant["code"],
-                                    ha="center",
-                                    va="center",
-                                    fontsize=8
-                                )
-
-                        elev_ax.axhline(0, linewidth=1)
-                        elev_ax.set_xlim(0, canvas_width)
-                        elev_ax.set_ylim(0, 140)
-                        elev_ax.axis("off")
-
-                        elevation_png = fig_to_png_bytes(elev_fig)
-                        elevation_jpeg = fig_to_jpeg_bytes(elev_fig)
-                        plt.close(elev_fig)
-
-                        # -----------------------------
-                        # Plant Count + Schedule
-                        # -----------------------------
-                        counts = {}
-                        for item in placed_instances:
-                            plant = item["plant"]
-                            counts[plant["name"]] = counts.get(plant["name"], 0) + 1
-
-                        schedule = []
-                        for plant_name, count in counts.items():
-                            plant = next(p for p in runtime_plants if p["name"] == plant_name)
-
-                            schedule.append({
-                                "Code": plant["code"],
-                                "Botanical Name": plant["name"],
-                                "Common Name": plant["common_name"],
-                                "Form": plant["form"],
-                                "Role": plant["role"],
-                                "Style": ", ".join(plant["style"]),
-                                "Texture": plant["texture"],
-                                "Color Tone": plant["color_tone"],
-                                "Visual Weight": plant["visual_weight"],
-                                "Spread Ft": plant["spread_ft"],
-                                "Height Ft": plant["height_ft"],
-                                "Count": count,
-                                "State": state,
-                                "Climate": ", ".join(plant["climate"]),
-                                "Sun": ", ".join(plant["sun"]),
-                                "Water": ", ".join(plant["water"]),
-                                "Seasonality": plant["seasonality"],
-                                "Allows Underplanting": plant.get("allows_underplanting", False)
-                            })
-
-                        # -----------------------------
-                        # Persist Current Scheme
-                        # -----------------------------
-                        st.session_state.generated_scheme = {
-                            "plan_png": plan_png.getvalue() if hasattr(plan_png, "getvalue") else plan_png,
-                            "plan_svg": plan_svg,
-                            "plan_dxf": plan_dxf,
-                            "elevation_png": elevation_png.getvalue() if hasattr(elevation_png, "getvalue") else elevation_png,
-                            "elevation_jpeg": elevation_jpeg.getvalue() if hasattr(elevation_jpeg, "getvalue") else elevation_jpeg,
-                            "counts": counts,
-                            "schedule": schedule,
-                            "target_coverage": target_coverage,
-                            "actual_coverage": actual_coverage,
-                            "bed_length_ft": bed_length_ft,
-                            "bed_width_ft": bed_width_ft,
-                            "max_plants_total": max_plants_total,
-                            "input_method": input_method,
-                            "plant_count_total": len(placed_instances),
-                        }
-
-                        st.success("Planting layout generated. Downloads are now locked to this current scheme.")
-
-    except Exception as e:
-        st.error("The app crashed while generating the layout.")
-        st.exception(e)
-
-# -----------------------------
-# Display Persisted Current Scheme
-# -----------------------------
-
-scheme = st.session_state.get("generated_scheme")
-
-if scheme is not None:
-    st.subheader("Current Generated Scheme")
-    st.caption("This scheme is stored in session state, so you can download multiple file formats without regenerating or losing the current layout.")
-
-    st.subheader("Plan View")
-    st.image(scheme["plan_png"], use_container_width=True)
-
-    d1, d2, d3 = st.columns(3)
-    with d1:
-        st.download_button(
-            label="Download Plan PNG",
-            data=scheme["plan_png"],
-            file_name="yodra-planting-plan.png",
-            mime="image/png",
-            key="download_plan_png"
-        )
-    with d2:
-        st.download_button(
-            label="Download Plan SVG",
-            data=scheme["plan_svg"],
-            file_name="yodra-planting-plan.svg",
-            mime="image/svg+xml",
-            key="download_plan_svg"
-        )
-    with d3:
-        st.download_button(
-            label="Download Plan DXF",
-            data=scheme["plan_dxf"],
-            file_name="yodra-planting-plan.dxf",
-            mime="application/dxf",
-            key="download_plan_dxf"
-        )
-
-    st.caption(f"Target coverage: {round(scheme['target_coverage'] * 100)}%")
-    st.caption(f"Actual generated coverage: {round(scheme['actual_coverage'] * 100)}%")
-    st.caption(f"Active bed scale: {scheme['bed_length_ft']:.0f} ft x {scheme['bed_width_ft']:.0f} ft")
-    st.caption(f"Maximum plant instances capped at {scheme['max_plants_total']} for app performance.")
-    st.caption(f"Generated plant instances: {scheme['plant_count_total']}")
-
-    st.subheader("Elevation View")
-    st.caption("Elevation uses the same plant instances generated in plan view, with subtle height variation.")
-    st.image(scheme["elevation_png"], use_container_width=True)
-
-    e1, e2 = st.columns(2)
-    with e1:
-        st.download_button(
-            label="Download Elevation PNG",
-            data=scheme["elevation_png"],
-            file_name="yodra-planting-elevation.png",
-            mime="image/png",
-            key="download_elevation_png"
-        )
-    with e2:
-        st.download_button(
-            label="Download Elevation JPEG",
-            data=scheme["elevation_jpeg"],
-            file_name="yodra-planting-elevation.jpg",
-            mime="image/jpeg",
-            key="download_elevation_jpeg"
-        )
-
-    st.subheader("Plant Count")
-    st.write(scheme["counts"])
-
-    st.subheader("Plant Schedule")
-    st.dataframe(scheme["schedule"], width="stretch")
-
-    if st.button("Clear Current Generated Scheme"):
-        st.session_state.generated_scheme = None
-        st.rerun()
+else:
+    st.info("Generate 3 concepts after saving at least one planting zone.")
