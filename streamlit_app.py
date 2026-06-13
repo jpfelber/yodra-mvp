@@ -7,9 +7,12 @@ import pandas as pd
 import requests
 import streamlit as st
 import matplotlib.pyplot as plt
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageDraw
 from shapely.geometry import Point, Polygon
-from streamlit_drawable_canvas import st_canvas
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+except Exception:
+    streamlit_image_coordinates = None
 
 # ============================================================
 # PAGE CONFIG
@@ -119,6 +122,8 @@ DEFAULT_STATE = {
     "placed_plants": [],
     "locked_plant_names": [],
     "plant_id_counter": 1,
+    "current_trace_points": [],
+    "last_trace_click": None,
 }
 
 for key, value in DEFAULT_STATE.items():
@@ -455,6 +460,8 @@ with st.sidebar:
                     st.session_state.faded_satellite_image = faded
                     st.session_state.zones = []
                     st.session_state.placed_plants = []
+                    st.session_state.current_trace_points = []
+                    st.session_state.last_trace_click = None
                     st.success("Satellite image loaded.")
                     st.rerun()
                 except Exception as exc:
@@ -468,6 +475,27 @@ with st.sidebar:
     st.divider()
     generate_clicked = st.button("Generate Plant Design", type="primary", use_container_width=True)
     regenerate_clicked = st.button("Regenerate Around Locked Plant Names", use_container_width=True)
+
+
+
+def render_trace_overlay(base_image, points):
+    """Return a PIL image with the current polygon trace drawn on top.
+    This avoids streamlit-drawable-canvas background_image compatibility issues.
+    """
+    image = base_image.copy().convert("RGB").resize((CANVAS_WIDTH, CANVAS_HEIGHT))
+    draw = ImageDraw.Draw(image)
+
+    if len(points) >= 2:
+        draw.line(points, fill=(0, 0, 0), width=4)
+    if len(points) >= 3:
+        draw.line([points[-1], points[0]], fill=(0, 0, 0), width=2)
+
+    for idx, (x, y) in enumerate(points):
+        r = 6
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255), outline=(0, 0, 0), width=2)
+        draw.text((x + 8, y - 8), str(idx + 1), fill=(0, 0, 0))
+
+    return image
 
 # ============================================================
 # MAIN UI
@@ -492,39 +520,58 @@ with left:
         zone_name = st.text_input("Zone name", value=f"Zone {len(st.session_state.zones) + 1}")
         zone_intent = st.selectbox("Zone type / design intent", ZONE_INTENTS)
 
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 255, 255, 0.18)",
-            stroke_width=3,
-            stroke_color="#000000",
-            background_image=st.session_state.faded_satellite_image,
-            height=CANVAS_HEIGHT,
-            width=CANVAS_WIDTH,
-            drawing_mode="polygon",
-            key=f"zone_canvas_{len(st.session_state.zones)}_{st.session_state.address}_{zoom}",
-        )
+        if streamlit_image_coordinates is None:
+            st.error("Missing package: streamlit-image-coordinates. Add it to requirements.txt and redeploy.")
+        else:
+            st.caption("Click points around the planting zone. Use more points for curves. Then click Add Planting Zone.")
+            overlay_image = render_trace_overlay(st.session_state.faded_satellite_image, st.session_state.current_trace_points)
+            clicked = streamlit_image_coordinates(
+                overlay_image,
+                key=f"trace_satellite_{len(st.session_state.zones)}_{st.session_state.address}_{zoom}",
+                width=CANVAS_WIDTH,
+            )
 
-        c1, c2 = st.columns(2)
+            if clicked is not None and "x" in clicked and "y" in clicked:
+                new_point = (int(clicked["x"]), int(clicked["y"]))
+                if st.session_state.last_trace_click != new_point:
+                    if len(st.session_state.current_trace_points) == 0 or math.dist(st.session_state.current_trace_points[-1], new_point) > 4:
+                        st.session_state.current_trace_points.append(new_point)
+                    st.session_state.last_trace_click = new_point
+                    st.rerun()
+
+        c0, c1, c2, c3 = st.columns(4)
+        with c0:
+            st.metric("Trace Points", len(st.session_state.current_trace_points))
         with c1:
+            if st.button("Undo Last Point", use_container_width=True):
+                st.session_state.current_trace_points = st.session_state.current_trace_points[:-1]
+                st.session_state.last_trace_click = None
+                st.rerun()
+        with c2:
             if st.button("Add Planting Zone", use_container_width=True):
-                points = get_polygon_points_from_canvas(canvas_result.json_data if canvas_result else None)
-                if not points:
-                    st.warning("Draw a closed polygon first.")
+                points = st.session_state.current_trace_points
+                if len(points) < 3:
+                    st.warning("Create at least 3 points first.")
                 else:
                     zone_id = f"zone_{len(st.session_state.zones) + 1}_{random.randint(1000, 9999)}"
                     st.session_state.zones.append({
                         "id": zone_id,
                         "name": zone_name.strip() or f"Zone {len(st.session_state.zones) + 1}",
                         "intent": zone_intent,
-                        "points": points,
+                        "points": [(float(x), float(y)) for x, y in points],
                     })
+                    st.session_state.current_trace_points = []
+                    st.session_state.last_trace_click = None
                     st.session_state.placed_plants = []
                     st.success("Zone added.")
                     st.rerun()
-        with c2:
+        with c3:
             if st.button("Clear All Zones", use_container_width=True):
                 st.session_state.zones = []
                 st.session_state.placed_plants = []
                 st.session_state.locked_plant_names = []
+                st.session_state.current_trace_points = []
+                st.session_state.last_trace_click = None
                 st.rerun()
 
         if st.session_state.zones:
