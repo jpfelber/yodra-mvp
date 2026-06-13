@@ -1,4 +1,5 @@
 streamlit
+requests
 matplotlib
 shapely
 streamlit-drawable-canvas
