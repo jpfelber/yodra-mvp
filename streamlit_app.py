@@ -1,14 +1,13 @@
 import math
 import random
 from io import BytesIO, StringIO
-from urllib.parse import quote_plus
 
 import pandas as pd
 import requests
 import streamlit as st
-import matplotlib.pyplot as plt
-from PIL import Image, ImageEnhance, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import Point, Polygon
+
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
 except Exception:
@@ -18,7 +17,7 @@ except Exception:
 # PAGE CONFIG
 # ============================================================
 
-st.set_page_config(page_title="Native Plant Design Generator", layout="wide")
+st.set_page_config(page_title="Native Plant Generator", layout="wide")
 
 # ============================================================
 # SETTINGS
@@ -26,15 +25,15 @@ st.set_page_config(page_title="Native Plant Design Generator", layout="wide")
 
 GOOGLE_MAPS_API_KEY = st.secrets.get("GOOGLE_MAPS_API_KEY", "")
 
-CANVAS_WIDTH = 900
-CANVAS_HEIGHT = 620
-DEFAULT_ZOOM = 20
-DEFAULT_IMAGE_SCALE = 2
+CANVAS_WIDTH = 980
+CANVAS_HEIGHT = 640
+GOOGLE_STATIC_ZOOM = 20  # intentionally fixed: no user-facing zoom control
+GOOGLE_IMAGE_SCALE = 2
 WHITE_FADE_OVERLAY = 0.50
 
 DENSITY_OPTIONS = {
     "Low": 0.22,
-    "Moderate": 0.35,
+    "Moderate": 0.34,
     "Dense": 0.48,
 }
 
@@ -42,6 +41,24 @@ SPACING_FACTOR = {
     "Low": 1.45,
     "Moderate": 1.25,
     "Dense": 1.05,
+}
+
+STATE_TO_REGIONS = {
+    "California": ["California", "Southwest"],
+    "Florida": ["Florida", "Gulf Coast", "Southeast"],
+    "Texas": ["Texas", "Gulf Coast", "Southeast", "Southwest"],
+    "Virginia": ["Mid-Atlantic", "Southeast"],
+    "Maryland": ["Mid-Atlantic"],
+    "New York": ["Northeast", "Mid-Atlantic"],
+    "North Carolina": ["Southeast", "Mid-Atlantic"],
+    "South Carolina": ["Southeast"],
+    "Georgia": ["Southeast"],
+    "Pennsylvania": ["Northeast", "Mid-Atlantic"],
+    "Illinois": ["Midwest"],
+    "Wisconsin": ["Midwest"],
+    "Colorado": ["Mountain", "Southwest"],
+    "Oregon": ["Pacific Northwest"],
+    "Washington": ["Pacific Northwest"],
 }
 
 ZONE_INTENTS = [
@@ -57,73 +74,78 @@ ZONE_INTENTS = [
     "Entry Planting",
 ]
 
-USDA_LOCATION_OPTIONS = {
-    "5a - Cold / Upper Midwest / Mountain towns": {"zones": [5], "regions": ["Midwest", "Mountain"]},
-    "5b - Cold / Upper Midwest / Mountain towns": {"zones": [5], "regions": ["Midwest", "Mountain"]},
-    "6a - Northeast / Midwest / Interior West": {"zones": [6], "regions": ["Northeast", "Midwest", "Mountain"]},
-    "6b - Northeast / Mid-Atlantic / Interior West": {"zones": [6], "regions": ["Northeast", "Mid-Atlantic", "Mountain"]},
-    "7a - Mid-Atlantic / Pacific Northwest / Transition South": {"zones": [7], "regions": ["Mid-Atlantic", "Pacific Northwest", "Southeast"]},
-    "7b - Mid-Atlantic / Pacific Northwest / Upper South": {"zones": [7], "regions": ["Mid-Atlantic", "Pacific Northwest", "Southeast"]},
-    "8a - Southeast / Texas / Pacific Northwest": {"zones": [8], "regions": ["Southeast", "Texas", "Pacific Northwest"]},
-    "8b - Southeast / Texas / Pacific Northwest / Coastal CA": {"zones": [8], "regions": ["Southeast", "Texas", "Pacific Northwest", "California"]},
-    "9a - Florida / Gulf Coast / California / Southwest": {"zones": [9], "regions": ["Florida", "Gulf Coast", "California", "Southwest"]},
-    "9b - Florida / Gulf Coast / Coastal California / Southwest": {"zones": [9], "regions": ["Florida", "Gulf Coast", "California", "Southwest"]},
-    "10a - South Florida / Coastal Southern California": {"zones": [10], "regions": ["Florida", "California"]},
-    "10b - South Florida / Coastal Southern California": {"zones": [10], "regions": ["Florida", "California"]},
-}
-
-# ============================================================
-# PLANT DATABASE
-# Add/edit this list as your real YODRA plant database grows.
-# symbol_color controls the colored 2D plan symbol.
-# ============================================================
-
+# symbol_color controls colored 2D plan symbols.
 PLANTS = [
     # California
-    {"name": "Carex pansa", "common": "Sand Dune Sedge", "code": "CP", "regions": ["California"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Matrix", "Groundcover"], "intents": ["Full Sun", "Part Shade", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "height_ft": 1, "symbol_color": "#8BA76A", "weight": 5},
-    {"name": "Festuca californica", "common": "California Fescue", "code": "FC", "regions": ["California"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Part Shade", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "height_ft": 2, "symbol_color": "#7F9A82", "weight": 4},
-    {"name": "Muhlenbergia rigens", "common": "Deergrass", "code": "MR", "regions": ["California", "Southwest"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 5, "height_ft": 4, "symbol_color": "#B8A46D", "weight": 4},
-    {"name": "Arctostaphylos densiflora 'Howard McMinn'", "common": "Howard McMinn Manzanita", "code": "AHM", "regions": ["California"], "usda_min": 8, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Full Sun", "Part Shade", "Low Water Requirements", "Foundation Planting"], "spread_ft": 8, "height_ft": 7, "symbol_color": "#6F7F6C", "weight": 3},
-    {"name": "Heteromeles arbutifolia", "common": "Toyon", "code": "HA", "regions": ["California"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Shade", "Full Sun", "Part Shade", "Low Water Requirements"], "spread_ft": 10, "height_ft": 15, "symbol_color": "#4F6F52", "weight": 2},
-    {"name": "Salvia spathacea", "common": "Hummingbird Sage", "code": "SS", "regions": ["California"], "usda_min": 8, "usda_max": 10, "sun": ["Part Shade"], "water": ["Moderate"], "roles": ["Accent", "Perennial"], "intents": ["Part Shade", "Pollinator Planting", "Foundation Planting"], "spread_ft": 4, "height_ft": 2, "symbol_color": "#9B3E72", "weight": 3},
-    {"name": "Eriogonum fasciculatum", "common": "California Buckwheat", "code": "EF", "regions": ["California", "Southwest"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Accent", "Shrub"], "intents": ["Full Sun", "Low Water Requirements", "Pollinator Planting", "Meadow / Naturalistic"], "spread_ft": 5, "height_ft": 4, "symbol_color": "#C7B47E", "weight": 3},
-    {"name": "Quercus agrifolia", "common": "Coast Live Oak", "code": "QA", "regions": ["California"], "usda_min": 8, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Canopy", "Tree"], "intents": ["Shade", "Privacy", "Low Water Requirements"], "spread_ft": 30, "height_ft": 40, "symbol_color": "#3F5D3D", "weight": 1},
+    {"name": "Carex pansa", "common": "Sand Dune Sedge", "code": "CP", "regions": ["California"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Matrix", "Groundcover"], "intents": ["Full Sun", "Part Shade", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "symbol_color": "#8BA76A", "weight": 5},
+    {"name": "Festuca californica", "common": "California Fescue", "code": "FC", "regions": ["California"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Part Shade", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "symbol_color": "#7F9A82", "weight": 4},
+    {"name": "Muhlenbergia rigens", "common": "Deergrass", "code": "MR", "regions": ["California", "Southwest"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 5, "symbol_color": "#B8A46D", "weight": 4},
+    {"name": "Arctostaphylos densiflora 'Howard McMinn'", "common": "Howard McMinn Manzanita", "code": "AHM", "regions": ["California"], "usda_min": 8, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Full Sun", "Part Shade", "Low Water Requirements", "Foundation Planting"], "spread_ft": 8, "symbol_color": "#6F7F6C", "weight": 3},
+    {"name": "Heteromeles arbutifolia", "common": "Toyon", "code": "HA", "regions": ["California"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Shade", "Full Sun", "Part Shade", "Low Water Requirements"], "spread_ft": 10, "symbol_color": "#4F6F52", "weight": 2},
+    {"name": "Salvia spathacea", "common": "Hummingbird Sage", "code": "SS", "regions": ["California"], "usda_min": 8, "usda_max": 10, "sun": ["Part Shade"], "water": ["Moderate"], "roles": ["Accent", "Perennial"], "intents": ["Part Shade", "Pollinator Planting", "Foundation Planting"], "spread_ft": 4, "symbol_color": "#9B3E72", "weight": 3},
+    {"name": "Eriogonum fasciculatum", "common": "California Buckwheat", "code": "EF", "regions": ["California", "Southwest"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Accent", "Shrub"], "intents": ["Full Sun", "Low Water Requirements", "Pollinator Planting", "Meadow / Naturalistic"], "spread_ft": 5, "symbol_color": "#C7B47E", "weight": 3},
+    {"name": "Quercus agrifolia", "common": "Coast Live Oak", "code": "QA", "regions": ["California"], "usda_min": 8, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Canopy", "Tree"], "intents": ["Shade", "Privacy", "Low Water Requirements"], "spread_ft": 30, "symbol_color": "#3F5D3D", "weight": 1},
 
     # Florida / Gulf Coast / Southeast
-    {"name": "Muhlenbergia capillaris", "common": "Muhly Grass", "code": "MC", "regions": ["Florida", "Gulf Coast", "Southeast"], "usda_min": 6, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low", "Moderate"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic", "Pollinator Planting"], "spread_ft": 3, "height_ft": 3, "symbol_color": "#C87CA0", "weight": 5},
-    {"name": "Serenoa repens", "common": "Saw Palmetto", "code": "SR", "regions": ["Florida", "Gulf Coast", "Southeast"], "usda_min": 8, "usda_max": 11, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Full Sun", "Part Shade", "Low Water Requirements", "Foundation Planting"], "spread_ft": 8, "height_ft": 6, "symbol_color": "#5C7A54", "weight": 3},
-    {"name": "Ilex vomitoria", "common": "Yaupon Holly", "code": "IV", "regions": ["Florida", "Gulf Coast", "Southeast", "Texas"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Shade", "Full Sun", "Part Shade", "Foundation Planting"], "spread_ft": 8, "height_ft": 12, "symbol_color": "#315C45", "weight": 3},
-    {"name": "Zamia integrifolia", "common": "Coontie", "code": "ZI", "regions": ["Florida", "Gulf Coast"], "usda_min": 8, "usda_max": 11, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Matrix", "Groundcover"], "intents": ["Full Sun", "Part Shade", "Low Water Requirements", "Foundation Planting"], "spread_ft": 3, "height_ft": 2, "symbol_color": "#4E7A50", "weight": 4},
-    {"name": "Tripsacum dactyloides", "common": "Fakahatchee Grass", "code": "TD", "regions": ["Florida", "Gulf Coast", "Southeast"], "usda_min": 8, "usda_max": 11, "sun": ["Full Sun", "Part Shade"], "water": ["Moderate", "High"], "roles": ["Matrix", "Grass"], "intents": ["High Water Requirements", "Full Sun", "Part Shade", "Privacy"], "spread_ft": 5, "height_ft": 5, "symbol_color": "#789262", "weight": 4},
-    {"name": "Conradina canescens", "common": "False Rosemary", "code": "CC", "regions": ["Florida", "Gulf Coast"], "usda_min": 8, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Accent", "Shrub"], "intents": ["Full Sun", "Low Water Requirements", "Pollinator Planting"], "spread_ft": 3, "height_ft": 3, "symbol_color": "#A7B8A0", "weight": 3},
-    {"name": "Sabal minor", "common": "Dwarf Palmetto", "code": "SM", "regions": ["Florida", "Gulf Coast", "Southeast", "Texas"], "usda_min": 7, "usda_max": 10, "sun": ["Part Shade", "Full Sun"], "water": ["Moderate", "High"], "roles": ["Structure", "Shrub"], "intents": ["Part Shade", "High Water Requirements", "Privacy", "Foundation Planting"], "spread_ft": 5, "height_ft": 5, "symbol_color": "#426C4A", "weight": 3},
+    {"name": "Muhlenbergia capillaris", "common": "Muhly Grass", "code": "MC", "regions": ["Florida", "Gulf Coast", "Southeast"], "usda_min": 6, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low", "Moderate"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic", "Pollinator Planting"], "spread_ft": 3, "symbol_color": "#C87CA0", "weight": 5},
+    {"name": "Serenoa repens", "common": "Saw Palmetto", "code": "SR", "regions": ["Florida", "Gulf Coast", "Southeast"], "usda_min": 8, "usda_max": 11, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Full Sun", "Part Shade", "Low Water Requirements", "Foundation Planting"], "spread_ft": 8, "symbol_color": "#5C7A54", "weight": 3},
+    {"name": "Ilex vomitoria", "common": "Yaupon Holly", "code": "IV", "regions": ["Florida", "Gulf Coast", "Southeast", "Texas"], "usda_min": 7, "usda_max": 10, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Structure", "Shrub"], "intents": ["Privacy", "Shade", "Full Sun", "Part Shade", "Foundation Planting"], "spread_ft": 8, "symbol_color": "#315C45", "weight": 3},
+    {"name": "Zamia integrifolia", "common": "Coontie", "code": "ZI", "regions": ["Florida", "Gulf Coast"], "usda_min": 8, "usda_max": 11, "sun": ["Full Sun", "Part Shade"], "water": ["Low"], "roles": ["Matrix", "Groundcover"], "intents": ["Full Sun", "Part Shade", "Low Water Requirements", "Foundation Planting"], "spread_ft": 3, "symbol_color": "#4E7A50", "weight": 4},
+    {"name": "Tripsacum dactyloides", "common": "Fakahatchee Grass", "code": "TD", "regions": ["Florida", "Gulf Coast", "Southeast"], "usda_min": 8, "usda_max": 11, "sun": ["Full Sun", "Part Shade"], "water": ["Moderate", "High"], "roles": ["Matrix", "Grass"], "intents": ["High Water Requirements", "Full Sun", "Part Shade", "Privacy"], "spread_ft": 5, "symbol_color": "#789262", "weight": 4},
+    {"name": "Conradina canescens", "common": "False Rosemary", "code": "CC", "regions": ["Florida", "Gulf Coast"], "usda_min": 8, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Accent", "Shrub"], "intents": ["Full Sun", "Low Water Requirements", "Pollinator Planting"], "spread_ft": 3, "symbol_color": "#A7B8A0", "weight": 3},
+    {"name": "Sabal minor", "common": "Dwarf Palmetto", "code": "SM", "regions": ["Florida", "Gulf Coast", "Southeast", "Texas"], "usda_min": 7, "usda_max": 10, "sun": ["Part Shade", "Full Sun"], "water": ["Moderate", "High"], "roles": ["Structure", "Shrub"], "intents": ["Part Shade", "High Water Requirements", "Privacy", "Foundation Planting"], "spread_ft": 5, "symbol_color": "#426C4A", "weight": 3},
 
-    # Texas / Southeast / Mid-Atlantic
-    {"name": "Schizachyrium scoparium", "common": "Little Bluestem", "code": "SSK", "regions": ["Texas", "Southeast", "Mid-Atlantic", "Midwest"], "usda_min": 3, "usda_max": 9, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "height_ft": 3, "symbol_color": "#B07D52", "weight": 5},
-    {"name": "Bouteloua gracilis", "common": "Blue Grama", "code": "BG", "regions": ["Texas", "Southwest", "Mountain", "Midwest"], "usda_min": 3, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "height_ft": 2, "symbol_color": "#BCA76A", "weight": 5},
-    {"name": "Echinacea purpurea", "common": "Purple Coneflower", "code": "EP", "regions": ["Texas", "Southeast", "Mid-Atlantic", "Midwest"], "usda_min": 3, "usda_max": 9, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Accent", "Perennial"], "intents": ["Full Sun", "Part Shade", "Pollinator Planting", "Meadow / Naturalistic"], "spread_ft": 2, "height_ft": 3, "symbol_color": "#9C6DAD", "weight": 4},
-    {"name": "Rudbeckia fulgida", "common": "Black-Eyed Susan", "code": "RF", "regions": ["Southeast", "Mid-Atlantic", "Midwest", "Texas"], "usda_min": 3, "usda_max": 9, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Accent", "Perennial"], "intents": ["Full Sun", "Part Shade", "Pollinator Planting", "Meadow / Naturalistic"], "spread_ft": 2, "height_ft": 3, "symbol_color": "#D1A231", "weight": 4},
-    {"name": "Itea virginica", "common": "Virginia Sweetspire", "code": "IT", "regions": ["Southeast", "Mid-Atlantic"], "usda_min": 5, "usda_max": 9, "sun": ["Full Sun", "Part Shade"], "water": ["Moderate", "High"], "roles": ["Structure", "Shrub"], "intents": ["Part Shade", "High Water Requirements", "Foundation Planting", "Pollinator Planting"], "spread_ft": 5, "height_ft": 5, "symbol_color": "#6F8E55", "weight": 3},
-    {"name": "Amelanchier canadensis", "common": "Serviceberry", "code": "ACN", "regions": ["Northeast", "Mid-Atlantic", "Southeast", "Midwest"], "usda_min": 4, "usda_max": 8, "sun": ["Full Sun", "Part Shade"], "water": ["Moderate"], "roles": ["Canopy", "Tree"], "intents": ["Shade", "Part Shade", "Foundation Planting", "Pollinator Planting"], "spread_ft": 15, "height_ft": 20, "symbol_color": "#55704E", "weight": 2},
-    {"name": "Carpinus caroliniana", "common": "American Hornbeam", "code": "CAR", "regions": ["Northeast", "Mid-Atlantic", "Southeast", "Midwest"], "usda_min": 3, "usda_max": 9, "sun": ["Part Shade", "Full Sun"], "water": ["Moderate", "High"], "roles": ["Canopy", "Tree"], "intents": ["Shade", "Privacy", "Part Shade", "High Water Requirements"], "spread_ft": 20, "height_ft": 25, "symbol_color": "#405B3E", "weight": 1},
+    # Texas / Southeast / Mid-Atlantic / Midwest
+    {"name": "Schizachyrium scoparium", "common": "Little Bluestem", "code": "SSK", "regions": ["Texas", "Southeast", "Mid-Atlantic", "Midwest"], "usda_min": 3, "usda_max": 9, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "symbol_color": "#B07D52", "weight": 5},
+    {"name": "Bouteloua gracilis", "common": "Blue Grama", "code": "BG", "regions": ["Texas", "Southwest", "Mountain", "Midwest"], "usda_min": 3, "usda_max": 10, "sun": ["Full Sun"], "water": ["Low"], "roles": ["Matrix", "Grass"], "intents": ["Full Sun", "Low Water Requirements", "Meadow / Naturalistic"], "spread_ft": 2, "symbol_color": "#BCA76A", "weight": 5},
+    {"name": "Echinacea purpurea", "common": "Purple Coneflower", "code": "EP", "regions": ["Texas", "Southeast", "Mid-Atlantic", "Midwest"], "usda_min": 3, "usda_max": 9, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Accent", "Perennial"], "intents": ["Full Sun", "Part Shade", "Pollinator Planting", "Meadow / Naturalistic"], "spread_ft": 2, "symbol_color": "#9C6DAD", "weight": 4},
+    {"name": "Rudbeckia fulgida", "common": "Black-Eyed Susan", "code": "RF", "regions": ["Southeast", "Mid-Atlantic", "Midwest", "Texas"], "usda_min": 3, "usda_max": 9, "sun": ["Full Sun", "Part Shade"], "water": ["Low", "Moderate"], "roles": ["Accent", "Perennial"], "intents": ["Full Sun", "Part Shade", "Pollinator Planting", "Meadow / Naturalistic"], "spread_ft": 2, "symbol_color": "#D1A231", "weight": 4},
+    {"name": "Itea virginica", "common": "Virginia Sweetspire", "code": "IT", "regions": ["Southeast", "Mid-Atlantic"], "usda_min": 5, "usda_max": 9, "sun": ["Full Sun", "Part Shade"], "water": ["Moderate", "High"], "roles": ["Structure", "Shrub"], "intents": ["Part Shade", "High Water Requirements", "Foundation Planting", "Pollinator Planting"], "spread_ft": 5, "symbol_color": "#6F8E55", "weight": 3},
+    {"name": "Amelanchier canadensis", "common": "Serviceberry", "code": "ACN", "regions": ["Northeast", "Mid-Atlantic", "Southeast", "Midwest"], "usda_min": 4, "usda_max": 8, "sun": ["Full Sun", "Part Shade"], "water": ["Moderate"], "roles": ["Canopy", "Tree"], "intents": ["Shade", "Part Shade", "Foundation Planting", "Pollinator Planting"], "spread_ft": 15, "symbol_color": "#55704E", "weight": 2},
+    {"name": "Carpinus caroliniana", "common": "American Hornbeam", "code": "CAR", "regions": ["Northeast", "Mid-Atlantic", "Southeast", "Midwest"], "usda_min": 3, "usda_max": 9, "sun": ["Part Shade", "Full Sun"], "water": ["Moderate", "High"], "roles": ["Canopy", "Tree"], "intents": ["Shade", "Privacy", "Part Shade", "High Water Requirements"], "spread_ft": 20, "symbol_color": "#405B3E", "weight": 1},
 ]
+
+# ============================================================
+# STYLE
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+    html, body, [data-testid="stAppViewContainer"] { background: #ffffff; }
+    [data-testid="stSidebar"] { background: #f3f5f7; border-right: 1px solid #e5e7eb; }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: #0b0b0b; }
+    .block-container { padding-top: 1.25rem; padding-bottom: 2rem; max-width: 1550px; }
+    .app-title { font-size: 26px; font-weight: 900; letter-spacing: .03em; line-height: 1; margin-bottom: 4px; }
+    .app-byline { font-size: 12px; font-weight: 700; margin-bottom: 22px; }
+    .step-title { font-size: 18px; font-weight: 800; margin-top: 26px; margin-bottom: 12px; }
+    .hint { font-size: 12px; color: #6b7280; line-height: 1.35; }
+    .zone-chip { display:inline-block; padding: 6px 9px; margin: 0 5px 6px 0; background:#fff; border:1px solid #d1d5db; border-radius:999px; font-size:12px; font-weight:700; }
+    .metric-card { background:#f7f7f4; border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px; }
+    div.stButton > button, div.stDownloadButton > button { border-radius: 8px; font-weight: 800; }
+    div[data-testid="stSidebar"] div.stButton > button[kind="primary"] { background:#000 !important; border-color:#000 !important; color:#fff !important; }
+    table { font-size: 12px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ============================================================
 # SESSION STATE
 # ============================================================
 
 DEFAULT_STATE = {
+    "address": "",
+    "formatted_address": "",
     "lat": None,
     "lon": None,
-    "address": "",
     "satellite_image": None,
     "faded_satellite_image": None,
     "zones": [],
-    "placed_plants": [],
-    "locked_plant_names": [],
-    "plant_id_counter": 1,
     "current_trace_points": [],
     "last_trace_click": None,
+    "placed_plants": [],
+    "plant_id_counter": 1,
 }
 
 for key, value in DEFAULT_STATE.items():
@@ -131,7 +153,7 @@ for key, value in DEFAULT_STATE.items():
         st.session_state[key] = value
 
 # ============================================================
-# SATELLITE + GEOCODING
+# GOOGLE MAPS
 # ============================================================
 
 @st.cache_data(show_spinner=False)
@@ -148,13 +170,13 @@ def geocode_address_google(address, api_key):
     return float(loc["lat"]), float(loc["lng"]), formatted
 
 @st.cache_data(show_spinner=False)
-def fetch_google_satellite_image(lat, lon, zoom, width, height, api_key):
+def fetch_google_satellite_image(lat, lon, api_key):
     url = "https://maps.googleapis.com/maps/api/staticmap"
     params = {
         "center": f"{lat},{lon}",
-        "zoom": zoom,
-        "size": f"{width}x{height}",
-        "scale": DEFAULT_IMAGE_SCALE,
+        "zoom": GOOGLE_STATIC_ZOOM,
+        "size": f"{CANVAS_WIDTH}x{CANVAS_HEIGHT}",
+        "scale": GOOGLE_IMAGE_SCALE,
         "maptype": "satellite",
         "format": "png",
         "key": api_key,
@@ -162,37 +184,15 @@ def fetch_google_satellite_image(lat, lon, zoom, width, height, api_key):
     response = requests.get(url, params=params, timeout=30)
     response.raise_for_status()
     image = Image.open(BytesIO(response.content)).convert("RGB")
-    return image.resize((width, height))
-
-@st.cache_data(show_spinner=False)
-def fetch_openstreetmap_placeholder(address):
-    # Fallback only. This does NOT provide satellite imagery.
-    image = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#e8e5dc")
-    return image
+    return image.resize((CANVAS_WIDTH, CANVAS_HEIGHT))
 
 def fade_image_with_white(image, opacity=0.50):
-    image = image.convert("RGB")
     white = Image.new("RGB", image.size, "white")
-    return Image.blend(image, white, opacity)
+    return Image.blend(image.convert("RGB"), white, opacity)
 
 # ============================================================
-# GEOMETRY + GENERATION HELPERS
+# GEOMETRY + PLANTING GENERATION
 # ============================================================
-
-def get_polygon_points_from_canvas(canvas_json):
-    if not canvas_json or "objects" not in canvas_json:
-        return None
-    objects = canvas_json.get("objects", [])
-    if not objects:
-        return None
-    obj = objects[-1]
-    if obj.get("type") != "path" and "path" not in obj:
-        return None
-    points = []
-    for command in obj.get("path", []):
-        if len(command) >= 3 and command[0] in ["M", "L"]:
-            points.append((float(command[1]), float(command[2])))
-    return points if len(points) >= 3 else None
 
 def normalize_polygon(points):
     if not points or len(points) < 3:
@@ -214,470 +214,443 @@ def overlaps_existing(x, y, radius, placed, spacing_factor):
             return True
     return False
 
-def plant_radius_px(plant):
-    # Symbol radius is proportional but intentionally compressed for readability on satellite imagery.
-    return max(7, min(44, plant["spread_ft"] * 3.0))
-
 def next_plant_id():
     pid = st.session_state.plant_id_counter
     st.session_state.plant_id_counter += 1
     return pid
 
-def zone_filters_from_intent(zone_intent):
-    sun = None
-    water = None
-    role_boosts = []
+def plant_radius_px(plant):
+    # Compressed visual symbol scale so plans remain readable over satellite imagery.
+    return max(8, min(44, float(plant.get("spread_ft", 3)) * 3.0))
 
-    if zone_intent == "Full Sun":
-        sun = "Full Sun"
-    elif zone_intent == "Part Shade" or zone_intent == "Shade":
-        sun = "Part Shade"
-    elif zone_intent == "Low Water Requirements":
-        water = "Low"
-    elif zone_intent == "High Water Requirements":
-        water = "High"
-    elif zone_intent == "Privacy":
-        role_boosts = ["Structure", "Shrub", "Canopy", "Tree"]
-    elif zone_intent == "Foundation Planting":
-        role_boosts = ["Structure", "Shrub", "Matrix", "Groundcover"]
-    elif zone_intent == "Meadow / Naturalistic":
-        role_boosts = ["Matrix", "Grass", "Accent", "Perennial"]
-    elif zone_intent == "Pollinator Planting":
-        role_boosts = ["Accent", "Perennial", "Shrub"]
+def filter_plants(state_name, usda_zone, zone_intent):
+    regions = STATE_TO_REGIONS.get(state_name, [state_name])
+    candidates = []
+    for plant in PLANTS:
+        region_match = any(region in plant["regions"] for region in regions)
+        zone_match = plant["usda_min"] <= usda_zone <= plant["usda_max"]
+        intent_match = zone_intent in plant["intents"]
+        flexible_match = (
+            zone_intent in ["Entry Planting", "Foundation Planting"]
+            and any(i in plant["intents"] for i in ["Foundation Planting", "Pollinator Planting", "Full Sun", "Part Shade"])
+        )
+        if region_match and zone_match and (intent_match or flexible_match):
+            candidates.append(plant)
 
-    return sun, water, role_boosts
+    if len(candidates) < 5:
+        for plant in PLANTS:
+            region_match = any(region in plant["regions"] for region in regions)
+            zone_match = plant["usda_min"] <= usda_zone <= plant["usda_max"]
+            if region_match and zone_match and plant not in candidates:
+                candidates.append(plant)
 
-def plant_matches_zone(plant, zone_intent, usda_info):
-    selected_zones = usda_info["zones"]
-    selected_regions = usda_info["regions"]
+    if len(candidates) < 5:
+        for plant in PLANTS:
+            zone_match = plant["usda_min"] <= usda_zone <= plant["usda_max"]
+            if zone_match and plant not in candidates:
+                candidates.append(plant)
 
-    if not any(plant["usda_min"] <= z <= plant["usda_max"] for z in selected_zones):
-        return False
+    return candidates[:12]
 
-    if not any(region in plant["regions"] for region in selected_regions):
-        return False
-
-    preferred_sun, preferred_water, _ = zone_filters_from_intent(zone_intent)
-
-    if preferred_sun and preferred_sun not in plant["sun"]:
-        return False
-
-    if preferred_water == "High":
-        if "High" not in plant["water"] and "Moderate" not in plant["water"]:
-            return False
-    elif preferred_water and preferred_water not in plant["water"]:
-        return False
-
-    # Soft intent matching: exact intent match gets handled by weighting, not hard exclusion.
-    return True
-
-def weighted_palette_for_zone(zone_intent, usda_info, locked_names):
-    candidates = [p for p in PLANTS if plant_matches_zone(p, zone_intent, usda_info)]
-
-    if not candidates:
-        # Fallback: same USDA only, regardless of region.
-        selected_zones = usda_info["zones"]
-        candidates = [p for p in PLANTS if any(p["usda_min"] <= z <= p["usda_max"] for z in selected_zones)]
-
-    weighted = []
-    _, _, role_boosts = zone_filters_from_intent(zone_intent)
-
-    for plant in candidates:
-        weight = plant.get("weight", 1)
-        if zone_intent in plant.get("intents", []):
-            weight += 5
-        if any(role in plant.get("roles", []) for role in role_boosts):
-            weight += 4
-        if plant["name"] in locked_names:
-            weight += 20
-        weighted.append((plant, max(1, weight)))
-
-    return weighted
-
-def choose_plant(weighted_plants):
-    plants = [item[0] for item in weighted_plants]
-    weights = [item[1] for item in weighted_plants]
+def weighted_choice(plants):
+    weights = [max(1, int(p.get("weight", 1))) for p in plants]
     return random.choices(plants, weights=weights, k=1)[0]
 
-def generate_plants_for_zone(zone, usda_info, density, locked_names, existing_locked_instances):
+def generate_for_zone(zone, plant_pool, density_name):
     poly = normalize_polygon(zone["points"])
-    if poly is None:
+    if poly is None or not plant_pool:
         return []
 
-    weighted_plants = weighted_palette_for_zone(zone["intent"], usda_info, locked_names)
-    if not weighted_plants:
-        return []
-
+    target_coverage = DENSITY_OPTIONS[density_name]
+    spacing_factor = SPACING_FACTOR[density_name]
+    target_area = poly.area * target_coverage
+    placed = []
+    placed_area = 0
     minx, miny, maxx, maxy = poly.bounds
-    target_area = poly.area * DENSITY_OPTIONS[density]
-    spacing = SPACING_FACTOR[density]
-    placed = [p for p in existing_locked_instances if p.get("zone_id") == zone["id"]]
-    new_items = []
-    covered_area = sum(math.pi * (p["radius"] ** 2) for p in placed)
-    max_attempts = 12000
     attempts = 0
+    max_attempts = 12000
 
-    while covered_area < target_area and attempts < max_attempts and len(placed) + len(new_items) < 500:
+    while placed_area < target_area and attempts < max_attempts and len(placed) < 450:
         attempts += 1
-        plant = choose_plant(weighted_plants)
+        plant = weighted_choice(plant_pool)
         radius = plant_radius_px(plant)
-
         if (maxx - minx) < radius * 2 or (maxy - miny) < radius * 2:
-            continue
+            break
 
         x = random.uniform(minx + radius, maxx - radius)
         y = random.uniform(miny + radius, maxy - radius)
 
         if not point_buffer_fits(poly, x, y, radius):
             continue
-
-        if overlaps_existing(x, y, radius, placed + new_items, spacing):
+        if overlaps_existing(x, y, radius, placed, spacing_factor):
             continue
 
-        item = {
+        placed.append({
             "id": next_plant_id(),
-            "zone_id": zone["id"],
-            "zone_name": zone["name"],
-            "zone_intent": zone["intent"],
             "x": x,
             "y": y,
             "radius": radius,
             "plant": plant,
-            "locked": plant["name"] in locked_names,
-        }
-        new_items.append(item)
-        covered_area += math.pi * radius ** 2
+            "zone": zone["name"],
+            "intent": zone["intent"],
+        })
+        placed_area += math.pi * radius * radius
 
-    return placed + new_items
+    return placed
 
-def run_generation(usda_label, density, locked_names, keep_locked_instances):
-    usda_info = USDA_LOCATION_OPTIONS[usda_label]
-    existing_locked_instances = []
-    if keep_locked_instances:
-        existing_locked_instances = [p for p in st.session_state.placed_plants if p.get("plant", {}).get("name") in locked_names]
-        for item in existing_locked_instances:
-            item["locked"] = True
-
-    generated = []
+def generate_all_zones(state_name, usda_zone, density_name):
+    all_placed = []
     for zone in st.session_state.zones:
-        generated.extend(generate_plants_for_zone(zone, usda_info, density, locked_names, existing_locked_instances))
-
-    st.session_state.placed_plants = generated
+        pool = filter_plants(state_name, usda_zone, zone["intent"])
+        zone_placed = generate_for_zone(zone, pool, density_name)
+        all_placed.extend(zone_placed)
+    st.session_state.placed_plants = all_placed
 
 # ============================================================
-# EXPORT HELPERS
+# RENDERING
 # ============================================================
 
-def render_plan_image(base_image, zones, placed_plants):
-    image = base_image.copy().convert("RGB")
-    fig, ax = plt.subplots(figsize=(12, 8))
-    ax.imshow(image, extent=(0, CANVAS_WIDTH, CANVAS_HEIGHT, 0), zorder=0)
+def hex_to_rgb(hex_color):
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
-    for zone in zones:
-        pts = zone["points"] + [zone["points"][0]]
-        xs, ys = zip(*pts)
-        ax.plot(xs, ys, linewidth=2.0, zorder=2)
-        ax.text(zone["points"][0][0], zone["points"][0][1], f"{zone['name']} | {zone['intent']}", fontsize=8, zorder=4)
+def draw_zone(draw, points, label, outline=(0, 0, 0), fill=(255, 255, 255, 45), width=3):
+    if len(points) >= 3:
+        draw.polygon(points, fill=fill)
+        draw.line(points + [points[0]], fill=outline, width=width)
+        x, y = points[0]
+        draw.rectangle((x, y - 18, x + max(90, len(label) * 7), y), fill=(255, 255, 255, 210))
+        draw.text((x + 4, y - 15), label, fill=(0, 0, 0))
+    elif len(points) >= 2:
+        draw.line(points, fill=(0, 0, 0), width=3)
+    for x, y in points:
+        r = 5
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=(255, 255, 255), outline=(0, 0, 0), width=2)
 
-    for item in placed_plants:
+def render_working_image():
+    if st.session_state.faded_satellite_image is None:
+        base = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#f4f1ea")
+    else:
+        base = st.session_state.faded_satellite_image.copy().convert("RGBA")
+
+    overlay = Image.new("RGBA", base.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    for idx, zone in enumerate(st.session_state.zones, start=1):
+        label = f"{idx}. {zone['name']}"
+        draw_zone(draw, zone["points"], label, outline=(0, 0, 0), fill=(255, 255, 255, 55), width=3)
+
+    if st.session_state.current_trace_points:
+        draw_zone(draw, st.session_state.current_trace_points, "Current zone", outline=(0, 0, 0), fill=(255, 255, 255, 35), width=3)
+
+    return Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
+
+def render_plan_image(include_table=True):
+    base = render_working_image().convert("RGBA")
+    draw = ImageDraw.Draw(base)
+
+    for item in st.session_state.placed_plants:
         plant = item["plant"]
-        circle = plt.Circle(
-            (item["x"], item["y"]),
-            item["radius"],
-            facecolor=plant["symbol_color"],
-            edgecolor="black",
-            linewidth=1.8 if item.get("locked") else 1.0,
-            alpha=0.78,
-            zorder=3,
-        )
-        ax.add_patch(circle)
-        ax.text(item["x"], item["y"], plant["code"], ha="center", va="center", fontsize=8, fontweight="bold", zorder=4)
+        color = hex_to_rgb(plant["symbol_color"])
+        x, y, r = item["x"], item["y"], item["radius"]
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=color + (175,), outline=(0, 0, 0, 220), width=2)
+        code = plant["code"]
+        text_w = max(18, len(code) * 7)
+        draw.rectangle((x - text_w/2, y - 8, x + text_w/2, y + 8), fill=(255, 255, 255, 220))
+        draw.text((x - text_w/2 + 3, y - 7), code, fill=(0, 0, 0))
 
-    ax.set_xlim(0, CANVAS_WIDTH)
-    ax.set_ylim(CANVAS_HEIGHT, 0)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    return fig
+    if not include_table:
+        return base.convert("RGB")
 
-def fig_to_png_bytes(fig):
+    table_width = 440
+    table = Image.new("RGBA", (table_width, CANVAS_HEIGHT), (255, 255, 255, 255))
+    tdraw = ImageDraw.Draw(table)
+    tdraw.text((18, 18), "Plant Schedule", fill=(0, 0, 0))
+    tdraw.line((18, 40, table_width - 18, 40), fill=(0, 0, 0), width=2)
+
+    df = plant_schedule_dataframe()
+    y = 60
+    headers = ["Code", "Qty", "Botanical Name", "Common Name"]
+    x_positions = [18, 70, 118, 292]
+    for x, h in zip(x_positions, headers):
+        tdraw.text((x, y), h, fill=(80, 80, 80))
+    y += 22
+    tdraw.line((18, y - 6, table_width - 18, y - 6), fill=(220, 220, 220), width=1)
+
+    for _, row in df.iterrows():
+        if y > CANVAS_HEIGHT - 28:
+            break
+        color = hex_to_rgb(row["Color"])
+        tdraw.ellipse((18, y + 3, 30, y + 15), fill=color + (220,), outline=(0, 0, 0))
+        tdraw.text((34, y), str(row["Code"]), fill=(0, 0, 0))
+        tdraw.text((70, y), str(row["Qty"]), fill=(0, 0, 0))
+        tdraw.text((118, y), str(row["Botanical Name"])[:24], fill=(0, 0, 0))
+        tdraw.text((292, y), str(row["Common Name"])[:18], fill=(0, 0, 0))
+        y += 24
+        tdraw.line((18, y - 6, table_width - 18, y - 6), fill=(235, 235, 235), width=1)
+
+    combined = Image.new("RGB", (CANVAS_WIDTH + table_width, CANVAS_HEIGHT), "white")
+    combined.paste(base.convert("RGB"), (0, 0))
+    combined.paste(table.convert("RGB"), (CANVAS_WIDTH, 0))
+    return combined
+
+def image_to_png_bytes(image):
     buffer = BytesIO()
-    fig.savefig(buffer, format="png", dpi=220, bbox_inches="tight")
+    image.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
 
-def plant_schedule_dataframe(placed_plants):
-    rows = []
-    counts = {}
-    for item in placed_plants:
-        name = item["plant"]["name"]
-        counts[name] = counts.get(name, 0) + 1
+# ============================================================
+# EXPORTS
+# ============================================================
 
-    for name, count in sorted(counts.items()):
-        plant = next(p for p in PLANTS if p["name"] == name)
+def plant_schedule_dataframe():
+    counts = {}
+    for item in st.session_state.placed_plants:
+        plant = item["plant"]
+        key = plant["name"]
+        if key not in counts:
+            counts[key] = {"plant": plant, "qty": 0}
+        counts[key]["qty"] += 1
+
+    rows = []
+    for data in sorted(counts.values(), key=lambda d: d["plant"]["code"]):
+        plant = data["plant"]
         rows.append({
             "Code": plant["code"],
-            "Qty": count,
+            "Qty": data["qty"],
             "Botanical Name": plant["name"],
             "Common Name": plant["common"],
-            "Spread": f"{plant['spread_ft']} ft",
-            "Height": f"{plant['height_ft']} ft",
-            "Water": ", ".join(plant["water"]),
-            "Sun": ", ".join(plant["sun"]),
+            "Color": plant["symbol_color"],
         })
     return pd.DataFrame(rows)
 
-def dataframe_to_csv_bytes(df):
+def csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8")
 
+def hex_to_dxf_truecolor(hex_color):
+    r, g, b = hex_to_rgb(hex_color)
+    return (r << 16) + (g << 8) + b
+
+def plan_to_dxf_bytes():
+    dxf = StringIO()
+    dxf.write("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n0\n0\nENDSEC\n")
+    dxf.write("0\nSECTION\n2\nTABLES\n0\nENDSEC\n")
+    dxf.write("0\nSECTION\n2\nENTITIES\n")
+
+    # Zones as closed linework in image units. Use image units unless later calibrated to survey feet.
+    for zone in st.session_state.zones:
+        layer = "ZONE_" + zone["name"].upper().replace(" ", "_")[:24]
+        pts = zone["points"] + [zone["points"][0]]
+        for i in range(len(pts) - 1):
+            x1, y1 = pts[i]
+            x2, y2 = pts[i + 1]
+            dxf.write(f"0\nLINE\n8\n{layer}\n62\n7\n10\n{x1:.3f}\n20\n{-y1:.3f}\n30\n0\n11\n{x2:.3f}\n21\n{-y2:.3f}\n31\n0\n")
+
+    # Plants as colored circles and code text.
+    for item in st.session_state.placed_plants:
+        plant = item["plant"]
+        truecolor = hex_to_dxf_truecolor(plant["symbol_color"])
+        x, y, r = item["x"], -item["y"], item["radius"]
+        code = plant["code"]
+        layer = "PLANT_" + code[:20]
+        dxf.write(f"0\nCIRCLE\n8\n{layer}\n420\n{truecolor}\n10\n{x:.3f}\n20\n{y:.3f}\n30\n0\n40\n{r:.3f}\n")
+        dxf.write(f"0\nTEXT\n8\nPLANT_CODES\n62\n7\n10\n{x - r/3:.3f}\n20\n{y - 3:.3f}\n30\n0\n40\n10\n1\n{code}\n")
+
+    dxf.write("0\nENDSEC\n0\nEOF\n")
+    return BytesIO(dxf.getvalue().encode("utf-8"))
+
 # ============================================================
-# SIDEBAR
+# SIDEBAR UI
 # ============================================================
 
 with st.sidebar:
-    st.markdown("### Native Plant Design Generator")
-    st.caption("Address → satellite image → planting zones → generated native planting plan")
-
+    st.markdown('<div class="app-title">NATIVE PLANT GENERATOR</div>', unsafe_allow_html=True)
+    st.markdown('<div class="app-byline">by The Landscape Library</div>', unsafe_allow_html=True)
     st.divider()
-    st.header("1. Site")
-    address = st.text_input("Project address", value=st.session_state.address, placeholder="Example: 123 Main St, McLean, VA")
-    zoom = st.slider("Satellite zoom", 18, 21, DEFAULT_ZOOM)
 
-    if st.button("Load Satellite Image", use_container_width=True):
-        if not address.strip():
-            st.warning("Enter an address first.")
-        elif not GOOGLE_MAPS_API_KEY:
-            st.error("Add GOOGLE_MAPS_API_KEY to Streamlit secrets before loading satellite imagery.")
+    st.markdown('<div class="step-title">1. Site</div>', unsafe_allow_html=True)
+    address = st.text_input("Project address", placeholder="Example: 123 Main St, McLean, VA", value=st.session_state.address)
+    load_satellite = st.button("Load Satellite Image", use_container_width=True)
+
+    if load_satellite:
+        if not GOOGLE_MAPS_API_KEY:
+            st.error("Missing GOOGLE_MAPS_API_KEY in Streamlit Secrets.")
+        elif not address.strip():
+            st.warning("Enter a project address first.")
         else:
-            with st.spinner("Loading satellite image..."):
-                try:
+            try:
+                with st.spinner("Loading satellite image..."):
                     lat, lon, formatted = geocode_address_google(address.strip(), GOOGLE_MAPS_API_KEY)
-                    satellite = fetch_google_satellite_image(lat, lon, zoom, CANVAS_WIDTH, CANVAS_HEIGHT, GOOGLE_MAPS_API_KEY)
-                    faded = fade_image_with_white(satellite, WHITE_FADE_OVERLAY)
+                    raw_img = fetch_google_satellite_image(lat, lon, GOOGLE_MAPS_API_KEY)
+                    faded_img = fade_image_with_white(raw_img, WHITE_FADE_OVERLAY)
+                    st.session_state.address = address.strip()
+                    st.session_state.formatted_address = formatted
                     st.session_state.lat = lat
                     st.session_state.lon = lon
-                    st.session_state.address = formatted
-                    st.session_state.satellite_image = satellite
-                    st.session_state.faded_satellite_image = faded
+                    st.session_state.satellite_image = raw_img
+                    st.session_state.faded_satellite_image = faded_img
                     st.session_state.zones = []
-                    st.session_state.placed_plants = []
                     st.session_state.current_trace_points = []
                     st.session_state.last_trace_click = None
+                    st.session_state.placed_plants = []
                     st.success("Satellite image loaded.")
                     st.rerun()
-                except Exception as exc:
-                    st.error(f"Satellite image could not be loaded: {exc}")
+            except Exception as e:
+                st.error(f"Satellite image could not be loaded: {e}")
 
     st.divider()
-    st.header("2. Region")
-    usda_label = st.selectbox("USDA hardiness zone + location", list(USDA_LOCATION_OPTIONS.keys()), index=8)
-    density = st.selectbox("Planting density", list(DENSITY_OPTIONS.keys()), index=1)
+    st.markdown('<div class="step-title">2. Planting Zones</div>', unsafe_allow_html=True)
+    zone_name = st.text_input("Zone name", value=f"Zone {len(st.session_state.zones) + 1}")
+    zone_intent = st.selectbox("Zone design intent", ZONE_INTENTS, index=0)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        add_zone = st.button("Add Zone", use_container_width=True)
+    with c2:
+        clear_points = st.button("Clear Points", use_container_width=True)
+
+    if clear_points:
+        st.session_state.current_trace_points = []
+        st.session_state.last_trace_click = None
+        st.rerun()
+
+    if add_zone:
+        points = st.session_state.current_trace_points
+        if len(points) < 3:
+            st.warning("Click at least 3 points on the satellite image first.")
+        else:
+            cleaned_name = zone_name.strip() or f"Zone {len(st.session_state.zones) + 1}"
+            st.session_state.zones.append({
+                "name": cleaned_name,
+                "intent": zone_intent,
+                "points": [(float(x), float(y)) for x, y in points],
+            })
+            st.session_state.current_trace_points = []
+            st.session_state.last_trace_click = None
+            st.session_state.placed_plants = []
+            st.rerun()
+
+    if st.session_state.zones:
+        st.markdown("<div class='hint'>Saved zones:</div>", unsafe_allow_html=True)
+        for idx, z in enumerate(st.session_state.zones, start=1):
+            st.markdown(f"<span class='zone-chip'>{idx}. {z['name']} · {z['intent']}</span>", unsafe_allow_html=True)
+        if st.button("Delete Last Zone", use_container_width=True):
+            st.session_state.zones = st.session_state.zones[:-1]
+            st.session_state.placed_plants = []
+            st.rerun()
+        if st.button("Clear All Zones", use_container_width=True):
+            st.session_state.zones = []
+            st.session_state.current_trace_points = []
+            st.session_state.placed_plants = []
+            st.rerun()
 
     st.divider()
-    generate_clicked = st.button("Generate Plant Design", type="primary", use_container_width=True)
-    regenerate_clicked = st.button("Regenerate Around Locked Plant Names", use_container_width=True)
+    st.markdown('<div class="step-title">3. Parameters</div>', unsafe_allow_html=True)
+    state_name = st.selectbox("State", list(STATE_TO_REGIONS.keys()), index=list(STATE_TO_REGIONS.keys()).index("California"))
+    usda_zone = st.selectbox("USDA hardiness zone", list(range(3, 12)), index=6)
+    density_name = st.selectbox("Planting density", list(DENSITY_OPTIONS.keys()), index=1)
 
+    generate = st.button("Generate Plant Design", type="primary", use_container_width=True)
 
-
-def render_trace_overlay(base_image, points):
-    """Return a PIL image with the current polygon trace drawn on top.
-    This avoids streamlit-drawable-canvas background_image compatibility issues.
-    """
-    image = base_image.copy().convert("RGB").resize((CANVAS_WIDTH, CANVAS_HEIGHT))
-    draw = ImageDraw.Draw(image)
-
-    if len(points) >= 2:
-        draw.line(points, fill=(0, 0, 0), width=4)
-    if len(points) >= 3:
-        draw.line([points[-1], points[0]], fill=(0, 0, 0), width=2)
-
-    for idx, (x, y) in enumerate(points):
-        r = 6
-        draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255), outline=(0, 0, 0), width=2)
-        draw.text((x + 8, y - 8), str(idx + 1), fill=(0, 0, 0))
-
-    return image
+    if generate:
+        if not st.session_state.zones:
+            st.warning("Create at least one planting zone first.")
+        else:
+            generate_all_zones(state_name, int(usda_zone), density_name)
+            if st.session_state.placed_plants:
+                st.success("Plant design generated.")
+                st.rerun()
+            else:
+                st.warning("No plants could be generated. Try a larger zone or different state / USDA zone.")
 
 # ============================================================
 # MAIN UI
 # ============================================================
 
-st.title("Native Plant Design Generator")
-st.markdown("Enter an address, load faded satellite imagery, draw multiple planting zones, and generate a colored native planting plan.")
+main_col, schedule_col = st.columns([4.4, 1.35], gap="large")
 
-if st.session_state.faded_satellite_image is None:
-    st.info("Start by entering an address in the sidebar and loading satellite imagery. You need a Google Maps API key in Streamlit secrets named `GOOGLE_MAPS_API_KEY`.")
-else:
-    st.caption(f"Loaded site: {st.session_state.address}")
-
-left, right = st.columns([2.2, 1])
-
-with left:
-    st.subheader("Create Planting Zones")
-
+with main_col:
     if st.session_state.faded_satellite_image is None:
-        st.image(Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), "#f2f2f2"), caption="Satellite image will appear here.")
+        st.markdown("### Enter a location to begin")
+        st.info("Load a satellite image, then click points around the planting area. Add each zone before drawing the next one.")
     else:
-        zone_name = st.text_input("Zone name", value=f"Zone {len(st.session_state.zones) + 1}")
-        zone_intent = st.selectbox("Zone type / design intent", ZONE_INTENTS)
+        st.caption(st.session_state.formatted_address or st.session_state.address)
+        working = render_working_image()
 
         if streamlit_image_coordinates is None:
             st.error("Missing package: streamlit-image-coordinates. Add it to requirements.txt and redeploy.")
+            st.image(working, use_container_width=False)
         else:
-            st.caption("Click points around the planting zone. Use more points for curves. Then click Add Planting Zone.")
-            overlay_image = render_trace_overlay(st.session_state.faded_satellite_image, st.session_state.current_trace_points)
             clicked = streamlit_image_coordinates(
-                overlay_image,
-                key=f"trace_satellite_{len(st.session_state.zones)}_{st.session_state.address}_{zoom}",
+                working,
+                key=f"satellite_click_{st.session_state.address}_{len(st.session_state.zones)}_{len(st.session_state.current_trace_points)}",
                 width=CANVAS_WIDTH,
             )
-
-            if clicked is not None and "x" in clicked and "y" in clicked:
+            if clicked and "x" in clicked and "y" in clicked:
                 new_point = (int(clicked["x"]), int(clicked["y"]))
                 if st.session_state.last_trace_click != new_point:
-                    if len(st.session_state.current_trace_points) == 0 or math.dist(st.session_state.current_trace_points[-1], new_point) > 4:
+                    if not st.session_state.current_trace_points or math.dist(st.session_state.current_trace_points[-1], new_point) > 4:
                         st.session_state.current_trace_points.append(new_point)
                     st.session_state.last_trace_click = new_point
                     st.rerun()
 
-        c0, c1, c2, c3 = st.columns(4)
-        with c0:
-            st.metric("Trace Points", len(st.session_state.current_trace_points))
-        with c1:
-            if st.button("Undo Last Point", use_container_width=True):
+        tool_a, tool_b, tool_c = st.columns([1, 1, 3])
+        with tool_a:
+            if st.button("Undo Point", use_container_width=True):
                 st.session_state.current_trace_points = st.session_state.current_trace_points[:-1]
                 st.session_state.last_trace_click = None
                 st.rerun()
-        with c2:
-            if st.button("Add Planting Zone", use_container_width=True):
-                points = st.session_state.current_trace_points
-                if len(points) < 3:
-                    st.warning("Create at least 3 points first.")
-                else:
-                    zone_id = f"zone_{len(st.session_state.zones) + 1}_{random.randint(1000, 9999)}"
-                    st.session_state.zones.append({
-                        "id": zone_id,
-                        "name": zone_name.strip() or f"Zone {len(st.session_state.zones) + 1}",
-                        "intent": zone_intent,
-                        "points": [(float(x), float(y)) for x, y in points],
-                    })
-                    st.session_state.current_trace_points = []
-                    st.session_state.last_trace_click = None
-                    st.session_state.placed_plants = []
-                    st.success("Zone added.")
-                    st.rerun()
-        with c3:
-            if st.button("Clear All Zones", use_container_width=True):
-                st.session_state.zones = []
-                st.session_state.placed_plants = []
-                st.session_state.locked_plant_names = []
-                st.session_state.current_trace_points = []
-                st.session_state.last_trace_click = None
-                st.rerun()
+        with tool_b:
+            st.metric("Current Points", len(st.session_state.current_trace_points))
+        with tool_c:
+            st.markdown("<div class='hint'>Click around a planting bed. Add Zone. Then draw the next zone while previous boundaries remain visible.</div>", unsafe_allow_html=True)
 
-        if st.session_state.zones:
-            st.subheader("Saved Zones")
-            for idx, zone in enumerate(st.session_state.zones, start=1):
-                poly = normalize_polygon(zone["points"])
-                approx_area_px = poly.area if poly else 0
-                row_a, row_b = st.columns([4, 1])
-                with row_a:
-                    st.caption(f"{idx}. {zone['name']} — {zone['intent']} — approx. {approx_area_px:,.0f} px²")
-                with row_b:
-                    if st.button("Delete", key=f"delete_zone_{zone['id']}"):
-                        st.session_state.zones = [z for z in st.session_state.zones if z["id"] != zone["id"]]
-                        st.session_state.placed_plants = [p for p in st.session_state.placed_plants if p.get("zone_id") != zone["id"]]
-                        st.rerun()
+        if st.session_state.placed_plants:
+            st.markdown("### Generated Plan View")
+            final_plan = render_plan_image(include_table=False)
+            st.image(final_plan, use_container_width=False)
 
-with right:
-    st.subheader("Locked Plant Names")
-    generated_names = sorted({p["plant"]["name"] for p in st.session_state.placed_plants})
+with schedule_col:
+    st.markdown("### Plan Schedule")
+    if st.session_state.placed_plants:
+        df = plant_schedule_dataframe()
+        st.dataframe(df.drop(columns=["Color"]), hide_index=True, use_container_width=True)
+        st.caption(f"Plant instances: {len(st.session_state.placed_plants)}")
+        st.caption(f"Zones designed: {len(st.session_state.zones)}")
 
-    if generated_names:
-        st.session_state.locked_plant_names = st.multiselect(
-            "Lock broad plant names before regenerating",
-            generated_names,
-            default=[name for name in st.session_state.locked_plant_names if name in generated_names],
-            help="This preserves and prioritizes these plant names when regenerating. It does not manually place individual plants.",
-        )
-    else:
-        st.caption("After generation, plant names will appear here for broad locking.")
-
-    st.subheader("Matching Plant Pool")
-    usda_info_preview = USDA_LOCATION_OPTIONS[usda_label]
-    preview_candidates = []
-    for intent in ZONE_INTENTS:
-        preview_candidates.extend([p["name"] for p, _ in weighted_palette_for_zone(intent, usda_info_preview, [])])
-    preview_names = sorted(set(preview_candidates))
-    st.caption(f"{len(preview_names)} plants available for selected region/USDA filter.")
-    with st.expander("View available plants"):
-        for name in preview_names:
-            plant = next(p for p in PLANTS if p["name"] == name)
-            st.markdown(f"**{plant['name']}**")
-            st.caption(f"{plant['common']} | {plant['code']} | {plant['spread_ft']} ft spread | {', '.join(plant['sun'])} | {', '.join(plant['water'])}")
-
-# ============================================================
-# GENERATION ACTIONS
-# ============================================================
-
-if generate_clicked:
-    if not st.session_state.zones:
-        st.warning("Create at least one planting zone before generating.")
-    elif st.session_state.faded_satellite_image is None:
-        st.warning("Load satellite imagery before generating.")
-    else:
-        run_generation(usda_label, density, locked_names=[], keep_locked_instances=False)
-        st.success("Plant design generated.")
-        st.rerun()
-
-if regenerate_clicked:
-    if not st.session_state.zones:
-        st.warning("Create at least one planting zone before regenerating.")
-    elif not st.session_state.locked_plant_names:
-        st.warning("Select at least one plant name to lock before regenerating.")
-    else:
-        run_generation(usda_label, density, st.session_state.locked_plant_names, keep_locked_instances=True)
-        st.success("Regenerated around locked plant names.")
-        st.rerun()
-
-# ============================================================
-# OUTPUTS
-# ============================================================
-
-if st.session_state.faded_satellite_image is not None and (st.session_state.zones or st.session_state.placed_plants):
-    st.divider()
-    st.subheader("Generated Planting Plan")
-    plan_fig = render_plan_image(
-        st.session_state.faded_satellite_image,
-        st.session_state.zones,
-        st.session_state.placed_plants,
-    )
-    st.pyplot(plan_fig)
-
-if st.session_state.placed_plants:
-    st.subheader("Plant Schedule")
-    schedule_df = plant_schedule_dataframe(st.session_state.placed_plants)
-    st.dataframe(schedule_df, use_container_width=True)
-
-    png_bytes = fig_to_png_bytes(plan_fig)
-    csv_bytes = dataframe_to_csv_bytes(schedule_df)
-
-    d1, d2 = st.columns(2)
-    with d1:
+        png_img = render_plan_image(include_table=True)
         st.download_button(
-            "Download Planting Plan PNG",
-            data=png_bytes,
-            file_name="native-plant-design-satellite-plan.png",
+            "Download Plan PNG",
+            data=image_to_png_bytes(png_img),
+            file_name="native-planting-plan.png",
             mime="image/png",
             use_container_width=True,
         )
-    with d2:
         st.download_button(
             "Download Plant Schedule CSV",
-            data=csv_bytes,
+            data=csv_bytes(df.drop(columns=["Color"])),
             file_name="native-plant-schedule.csv",
             mime="text/csv",
             use_container_width=True,
         )
-
-    st.caption(f"Generated plants: {len(st.session_state.placed_plants)}")
-    st.caption(f"Locked plant names: {len(st.session_state.locked_plant_names)}")
+        st.download_button(
+            "Download Plan DXF",
+            data=plan_to_dxf_bytes(),
+            file_name="native-planting-plan.dxf",
+            mime="application/dxf",
+            use_container_width=True,
+        )
+    else:
+        st.info("After generation, the plant schedule and downloads will appear here.")
+        if st.session_state.zones:
+            zone_rows = []
+            for idx, z in enumerate(st.session_state.zones, start=1):
+                poly = normalize_polygon(z["points"])
+                zone_rows.append({
+                    "Zone": idx,
+                    "Name": z["name"],
+                    "Intent": z["intent"],
+                    "Approx. Area": round(poly.area) if poly else 0,
+                })
+            st.dataframe(pd.DataFrame(zone_rows), hide_index=True, use_container_width=True)
