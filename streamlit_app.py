@@ -139,6 +139,7 @@ DEFAULT_STATE = {
     "formatted_address": "",
     "lat": None,
     "lon": None,
+    "feet_per_pixel": None,
     "satellite_image": None,
     "faded_satellite_image": None,
     "zones": [],
@@ -219,9 +220,48 @@ def next_plant_id():
     st.session_state.plant_id_counter += 1
     return pid
 
-def plant_radius_px(plant):
-    # Compressed visual symbol scale so plans remain readable over satellite imagery.
-    return max(8, min(44, float(plant.get("spread_ft", 3)) * 3.0))
+def calculate_feet_per_pixel(latitude, zoom):
+    """Approximate ground resolution for Google Web Mercator tiles.
+
+    Because this app resizes Google Static Maps scale=2 imagery back to the
+    requested logical image size, this returns feet per displayed app pixel.
+    """
+    meters_per_pixel = 156543.03392 * math.cos(math.radians(latitude)) / (2 ** zoom)
+    return meters_per_pixel * 3.28084
+
+def plant_radius_px(plant, feet_per_pixel=None):
+    """Convert botanical spread in feet to a true map-scaled circle radius in pixels."""
+    feet_per_pixel = feet_per_pixel or st.session_state.get("feet_per_pixel") or 1.0
+    spread_ft = float(plant.get("spread_ft", 3))
+    radius_px = (spread_ft / 2.0) / max(feet_per_pixel, 0.0001)
+    # Keep very small symbols minimally clickable/visible while preserving scale closely.
+    return max(2.5, radius_px)
+
+def polygon_area_sqft(poly):
+    feet_per_pixel = st.session_state.get("feet_per_pixel") or 1.0
+    return poly.area * (feet_per_pixel ** 2)
+
+def get_scaled_font(size):
+    size = int(max(5, min(22, size)))
+    for path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+def centered_text(draw, xy, text, font, fill):
+    x, y = xy
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+    except Exception:
+        tw, th = draw.textsize(text, font=font)
+    draw.text((x - tw / 2, y - th / 2), text, font=font, fill=fill)
 
 def filter_plants(state_name, usda_zone, zone_intent):
     regions = STATE_TO_REGIONS.get(state_name, [state_name])
@@ -273,7 +313,7 @@ def generate_for_zone(zone, plant_pool, density_name):
     while placed_area < target_area and attempts < max_attempts and len(placed) < 450:
         attempts += 1
         plant = weighted_choice(plant_pool)
-        radius = plant_radius_px(plant)
+        radius = plant_radius_px(plant, st.session_state.get("feet_per_pixel"))
         if (maxx - minx) < radius * 2 or (maxy - miny) < radius * 2:
             break
 
@@ -353,11 +393,14 @@ def render_plan_image(include_table=True):
         plant = item["plant"]
         color = hex_to_rgb(plant["symbol_color"])
         x, y, r = item["x"], item["y"], item["radius"]
-        draw.ellipse((x-r, y-r, x+r, y+r), fill=color + (175,), outline=(0, 0, 0, 220), width=2)
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=color + (165,), outline=(0, 0, 0, 230), width=1 if r < 6 else 2)
         code = plant["code"]
-        text_w = max(18, len(code) * 7)
-        draw.rectangle((x - text_w/2, y - 8, x + text_w/2, y + 8), fill=(255, 255, 255, 220))
-        draw.text((x - text_w/2 + 3, y - 7), code, fill=(0, 0, 0))
+        # Text scales with symbol diameter. No white label background.
+        font_size = max(5, min(16, r * 0.78))
+        font = get_scaled_font(font_size)
+        text_fill = (0, 0, 0, 235) if r >= 5 else (0, 0, 0, 0)
+        if r >= 4.5:
+            centered_text(draw, (x, y), code, font, text_fill)
 
     if not include_table:
         return base.convert("RGB")
@@ -434,28 +477,33 @@ def hex_to_dxf_truecolor(hex_color):
 
 def plan_to_dxf_bytes():
     dxf = StringIO()
-    dxf.write("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n0\n0\nENDSEC\n")
+    dxf.write("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n2\n0\nENDSEC\n")
     dxf.write("0\nSECTION\n2\nTABLES\n0\nENDSEC\n")
     dxf.write("0\nSECTION\n2\nENTITIES\n")
 
-    # Zones as closed linework in image units. Use image units unless later calibrated to survey feet.
+    feet_per_pixel = st.session_state.get("feet_per_pixel") or 1.0
+
+    # Zones as closed linework in approximate real-world feet.
     for zone in st.session_state.zones:
         layer = "ZONE_" + zone["name"].upper().replace(" ", "_")[:24]
         pts = zone["points"] + [zone["points"][0]]
         for i in range(len(pts) - 1):
             x1, y1 = pts[i]
             x2, y2 = pts[i + 1]
-            dxf.write(f"0\nLINE\n8\n{layer}\n62\n7\n10\n{x1:.3f}\n20\n{-y1:.3f}\n30\n0\n11\n{x2:.3f}\n21\n{-y2:.3f}\n31\n0\n")
+            dxf.write(f"0\nLINE\n8\n{layer}\n62\n7\n10\n{x1 * feet_per_pixel:.3f}\n20\n{-y1 * feet_per_pixel:.3f}\n30\n0\n11\n{x2 * feet_per_pixel:.3f}\n21\n{-y2 * feet_per_pixel:.3f}\n31\n0\n")
 
     # Plants as colored circles and code text.
     for item in st.session_state.placed_plants:
         plant = item["plant"]
         truecolor = hex_to_dxf_truecolor(plant["symbol_color"])
-        x, y, r = item["x"], -item["y"], item["radius"]
+        x = item["x"] * feet_per_pixel
+        y = -item["y"] * feet_per_pixel
+        r = item["radius"] * feet_per_pixel
         code = plant["code"]
         layer = "PLANT_" + code[:20]
         dxf.write(f"0\nCIRCLE\n8\n{layer}\n420\n{truecolor}\n10\n{x:.3f}\n20\n{y:.3f}\n30\n0\n40\n{r:.3f}\n")
-        dxf.write(f"0\nTEXT\n8\nPLANT_CODES\n62\n7\n10\n{x - r/3:.3f}\n20\n{y - 3:.3f}\n30\n0\n40\n10\n1\n{code}\n")
+        text_height = max(0.35, min(1.2, r * 0.55))
+        dxf.write(f"0\nTEXT\n8\nPLANT_CODES\n62\n7\n10\n{x - r/3:.3f}\n20\n{y - text_height/2:.3f}\n30\n0\n40\n{text_height:.3f}\n1\n{code}\n")
 
     dxf.write("0\nENDSEC\n0\nEOF\n")
     return BytesIO(dxf.getvalue().encode("utf-8"))
@@ -488,6 +536,7 @@ with st.sidebar:
                     st.session_state.formatted_address = formatted
                     st.session_state.lat = lat
                     st.session_state.lon = lon
+                    st.session_state.feet_per_pixel = calculate_feet_per_pixel(lat, GOOGLE_STATIC_ZOOM)
                     st.session_state.satellite_image = raw_img
                     st.session_state.faded_satellite_image = faded_img
                     st.session_state.zones = []
@@ -576,6 +625,8 @@ with main_col:
         st.info("Load a satellite image, then click points around the planting area. Add each zone before drawing the next one.")
     else:
         st.caption(st.session_state.formatted_address or st.session_state.address)
+        if st.session_state.get("feet_per_pixel"):
+            st.caption(f"Approx. map scale: 1 pixel = {st.session_state.feet_per_pixel:.2f} ft | plant symbols use botanical spread in feet")
         working = render_working_image()
 
         if streamlit_image_coordinates is None:
@@ -651,6 +702,6 @@ with schedule_col:
                     "Zone": idx,
                     "Name": z["name"],
                     "Intent": z["intent"],
-                    "Approx. Area": round(poly.area) if poly else 0,
+                    "Approx. Area": round(polygon_area_sqft(poly)) if poly else 0,
                 })
             st.dataframe(pd.DataFrame(zone_rows), hide_index=True, use_container_width=True)
