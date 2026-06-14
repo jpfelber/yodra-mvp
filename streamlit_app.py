@@ -471,42 +471,191 @@ def plant_schedule_dataframe():
 def csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8")
 
-def hex_to_dxf_truecolor(hex_color):
-    r, g, b = hex_to_rgb(hex_color)
-    return (r << 16) + (g << 8) + b
+def hex_to_rgb_tuple(hex_color):
+    """Return (r, g, b) from a hex color."""
+    value = (hex_color or "#777777").strip().lstrip("#")
+    if len(value) != 6:
+        return (119, 119, 119)
+    try:
+        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+    except Exception:
+        return (119, 119, 119)
+
+def nearest_aci_color(hex_color):
+    """
+    Approximate a hex color to a basic AutoCAD Color Index.
+    This keeps the DXF simple and AutoCAD-friendly.
+    """
+    r, g, b = hex_to_rgb_tuple(hex_color)
+    palette = {
+        1: (255, 0, 0),       # red
+        2: (255, 255, 0),     # yellow
+        3: (0, 255, 0),       # green
+        4: (0, 255, 255),     # cyan
+        5: (0, 0, 255),       # blue
+        6: (255, 0, 255),     # magenta
+        7: (255, 255, 255),   # white/black depending on background
+        8: (128, 128, 128),   # gray
+        30: (255, 128, 0),
+        40: (255, 191, 0),
+        70: (0, 128, 0),
+        90: (0, 128, 128),
+        140: (0, 0, 128),
+        200: (128, 0, 128),
+    }
+    def dist(c):
+        return (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2
+    return min(palette.keys(), key=lambda idx: dist(palette[idx]))
+
+def clean_dxf_layer_name(value, fallback="LAYER"):
+    text = str(value or fallback).upper()
+    for ch in '<>/\\":;?*|=,`':
+        text = text.replace(ch, "_")
+    text = text.replace(" ", "_")
+    text = "".join(ch for ch in text if ch.isalnum() or ch in "_-$")
+    return (text or fallback)[:31]
+
+def dxf_pair(code, value):
+    return f"{code}\n{value}\n"
+
+def dxf_text_entity(layer, x, y, height, text, color=7):
+    """Simple R12-compatible TEXT entity."""
+    safe = str(text).replace("\n", " ").replace("\r", " ")
+    out = []
+    out.append(dxf_pair(0, "TEXT"))
+    out.append(dxf_pair(8, layer))
+    out.append(dxf_pair(62, color))
+    out.append(dxf_pair(10, f"{x:.4f}"))
+    out.append(dxf_pair(20, f"{y:.4f}"))
+    out.append(dxf_pair(30, "0.0"))
+    out.append(dxf_pair(40, f"{height:.4f}"))
+    out.append(dxf_pair(1, safe))
+    out.append(dxf_pair(7, "STANDARD"))
+    return "".join(out)
 
 def plan_to_dxf_bytes():
-    dxf = StringIO()
-    dxf.write("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n2\n0\nENDSEC\n")
-    dxf.write("0\nSECTION\n2\nTABLES\n0\nENDSEC\n")
-    dxf.write("0\nSECTION\n2\nENTITIES\n")
+    """
+    Export a geometry-only DXF.
 
-    feet_per_pixel = st.session_state.get("feet_per_pixel") or 1.0
+    Important:
+    - The satellite image is intentionally NOT exported.
+    - This avoids broken IMAGE / IMAGEDEF references in AutoCAD.
+    - The DXF contains only zone linework, plant circles, plant code text, and a legend.
+    - Units are approximate feet, using the Google Static Maps feet-per-pixel calculation.
+    """
+    feet_per_pixel = float(st.session_state.get("feet_per_pixel") or 1.0)
+
+    # R12-style DXF is intentionally used for maximum AutoCAD compatibility.
+    dxf = StringIO()
+    dxf.write(dxf_pair(0, "SECTION"))
+    dxf.write(dxf_pair(2, "HEADER"))
+    dxf.write(dxf_pair(9, "$ACADVER"))
+    dxf.write(dxf_pair(1, "AC1009"))
+    dxf.write(dxf_pair(9, "$INSUNITS"))
+    dxf.write(dxf_pair(70, 2))  # feet
+    dxf.write(dxf_pair(0, "ENDSEC"))
+
+    dxf.write(dxf_pair(0, "SECTION"))
+    dxf.write(dxf_pair(2, "TABLES"))
+
+    # Layer table.
+    layer_names = {"ZONES": 7, "PLANTS": 3, "PLANT_CODES": 7, "LEGEND": 7}
+    for item in st.session_state.get("placed_plants", []):
+        plant = item.get("plant", {})
+        layer_names[clean_dxf_layer_name("PLANT_" + plant.get("code", "XX"), "PLANTS")] = nearest_aci_color(plant.get("symbol_color", "#777777"))
+    for zone in st.session_state.get("zones", []):
+        layer_names[clean_dxf_layer_name("ZONE_" + zone.get("name", "ZONE"), "ZONES")] = 7
+
+    dxf.write(dxf_pair(0, "TABLE"))
+    dxf.write(dxf_pair(2, "LAYER"))
+    dxf.write(dxf_pair(70, len(layer_names)))
+    for lname, color in layer_names.items():
+        dxf.write(dxf_pair(0, "LAYER"))
+        dxf.write(dxf_pair(2, lname))
+        dxf.write(dxf_pair(70, 0))
+        dxf.write(dxf_pair(62, color))
+        dxf.write(dxf_pair(6, "CONTINUOUS"))
+    dxf.write(dxf_pair(0, "ENDTAB"))
+    dxf.write(dxf_pair(0, "ENDSEC"))
+
+    dxf.write(dxf_pair(0, "SECTION"))
+    dxf.write(dxf_pair(2, "ENTITIES"))
 
     # Zones as closed linework in approximate real-world feet.
-    for zone in st.session_state.zones:
-        layer = "ZONE_" + zone["name"].upper().replace(" ", "_")[:24]
-        pts = zone["points"] + [zone["points"][0]]
-        for i in range(len(pts) - 1):
-            x1, y1 = pts[i]
-            x2, y2 = pts[i + 1]
-            dxf.write(f"0\nLINE\n8\n{layer}\n62\n7\n10\n{x1 * feet_per_pixel:.3f}\n20\n{-y1 * feet_per_pixel:.3f}\n30\n0\n11\n{x2 * feet_per_pixel:.3f}\n21\n{-y2 * feet_per_pixel:.3f}\n31\n0\n")
+    for zone in st.session_state.get("zones", []):
+        pts = zone.get("points", [])
+        if len(pts) < 3:
+            continue
+        layer = clean_dxf_layer_name("ZONE_" + zone.get("name", "ZONE"), "ZONES")
+        closed_pts = pts + [pts[0]]
+        for i in range(len(closed_pts) - 1):
+            x1, y1 = closed_pts[i]
+            x2, y2 = closed_pts[i + 1]
+            dxf.write(dxf_pair(0, "LINE"))
+            dxf.write(dxf_pair(8, layer))
+            dxf.write(dxf_pair(62, 7))
+            dxf.write(dxf_pair(10, f"{x1 * feet_per_pixel:.4f}"))
+            dxf.write(dxf_pair(20, f"{-y1 * feet_per_pixel:.4f}"))
+            dxf.write(dxf_pair(30, "0.0"))
+            dxf.write(dxf_pair(11, f"{x2 * feet_per_pixel:.4f}"))
+            dxf.write(dxf_pair(21, f"{-y2 * feet_per_pixel:.4f}"))
+            dxf.write(dxf_pair(31, "0.0"))
+
+        # Zone label.
+        zx, zy = pts[0]
+        dxf.write(dxf_text_entity(
+            layer="ZONES",
+            x=zx * feet_per_pixel,
+            y=-zy * feet_per_pixel,
+            height=2.0,
+            text=f"{zone.get('name', 'Zone')} - {zone.get('intent', '')}",
+            color=7,
+        ))
 
     # Plants as colored circles and code text.
-    for item in st.session_state.placed_plants:
-        plant = item["plant"]
-        truecolor = hex_to_dxf_truecolor(plant["symbol_color"])
-        x = item["x"] * feet_per_pixel
-        y = -item["y"] * feet_per_pixel
-        r = item["radius"] * feet_per_pixel
-        code = plant["code"]
-        layer = "PLANT_" + code[:20]
-        dxf.write(f"0\nCIRCLE\n8\n{layer}\n420\n{truecolor}\n10\n{x:.3f}\n20\n{y:.3f}\n30\n0\n40\n{r:.3f}\n")
-        text_height = max(0.35, min(1.2, r * 0.55))
-        dxf.write(f"0\nTEXT\n8\nPLANT_CODES\n62\n7\n10\n{x - r/3:.3f}\n20\n{y - text_height/2:.3f}\n30\n0\n40\n{text_height:.3f}\n1\n{code}\n")
+    for item in st.session_state.get("placed_plants", []):
+        plant = item.get("plant", {})
+        code = plant.get("code", "XX")
+        layer = clean_dxf_layer_name("PLANT_" + code, "PLANTS")
+        color = nearest_aci_color(plant.get("symbol_color", "#777777"))
+        x = float(item.get("x", 0)) * feet_per_pixel
+        y = -float(item.get("y", 0)) * feet_per_pixel
+        r = max(0.1, float(item.get("radius", 1)) * feet_per_pixel)
 
-    dxf.write("0\nENDSEC\n0\nEOF\n")
-    return BytesIO(dxf.getvalue().encode("utf-8"))
+        dxf.write(dxf_pair(0, "CIRCLE"))
+        dxf.write(dxf_pair(8, layer))
+        dxf.write(dxf_pair(62, color))
+        dxf.write(dxf_pair(10, f"{x:.4f}"))
+        dxf.write(dxf_pair(20, f"{y:.4f}"))
+        dxf.write(dxf_pair(30, "0.0"))
+        dxf.write(dxf_pair(40, f"{r:.4f}"))
+
+        # Code text scales to symbol diameter and has no background.
+        text_height = max(0.25, min(1.25, r * 0.45))
+        dxf.write(dxf_text_entity(
+            layer="PLANT_CODES",
+            x=x - (len(code) * text_height * 0.22),
+            y=y - (text_height * 0.35),
+            height=text_height,
+            text=code,
+            color=7,
+        ))
+
+    # Legend / schedule, placed to the right of the map extents.
+    schedule_df = plant_schedule_dataframe() if st.session_state.get("placed_plants") else pd.DataFrame()
+    legend_x = CANVAS_WIDTH * feet_per_pixel + 20
+    legend_y = 0
+    dxf.write(dxf_text_entity("LEGEND", legend_x, legend_y, 2.5, "PLANT SCHEDULE", 7))
+    legend_y -= 5
+    if not schedule_df.empty:
+        for _, row in schedule_df.iterrows():
+            line = f"{row['Code']}  QTY {row['Qty']}  {row['Botanical Name']}  ({row['Common Name']})"
+            dxf.write(dxf_text_entity("LEGEND", legend_x, legend_y, 1.5, line[:120], 7))
+            legend_y -= 3.2
+
+    dxf.write(dxf_pair(0, "ENDSEC"))
+    dxf.write(dxf_pair(0, "EOF"))
+    return BytesIO(dxf.getvalue().encode("ascii", errors="ignore"))
 
 # ============================================================
 # SIDEBAR UI
