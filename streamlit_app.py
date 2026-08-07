@@ -2570,8 +2570,9 @@ with st.sidebar:
 
         ["Draw Boundary", "Upload JPEG Image"],
 
-        index=0
+        index=0,
 
+        key="radio_2567"
     )
 
 
@@ -6513,8 +6514,9 @@ with st.sidebar:
 
         ["Draw Boundary", "Upload JPEG Image"],
 
-        index=0
+        index=0,
 
+        key="radio_6511"
     )
 
 
@@ -10577,8 +10579,9 @@ with st.sidebar:
 
         ["Draw Boundary", "Upload JPEG Image"],
 
-        index=0
+        index=0,
 
+        key="radio_10576"
     )
 
 
@@ -14826,8 +14829,9 @@ with st.sidebar:
 
         ["Draw Boundary", "Upload JPEG Image"],
 
-        index=0
+        index=0,
 
+        key="radio_14826"
     )
 
 
@@ -19092,8 +19096,9 @@ with st.sidebar:
 
         ["Draw Boundary", "Upload JPEG Image"],
 
-        index=0
+        index=0,
 
+        key="radio_19093"
     )
 
 
@@ -23441,8 +23446,9 @@ with st.sidebar:
 
         ["Draw Boundary", "Upload JPEG Image"],
 
-        index=0
+        index=0,
 
+        key="radio_23443"
     )
 
 
