@@ -186,49 +186,59 @@ def log_plant_request(email, requested_plant, **kwargs):
 
 
 def get_or_create_user(email):
-
     email = email.strip().lower()
 
-    if supabase is None:
-
-        return {"email": email, "paid_status": False, "total_generations": 0, "total_exports": 0}
-
-
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    result = supabase.table("users").select("*").eq("email", email).execute()
-
-    if result.data:
-
-        user = result.data[0]
-
-        supabase.table("users").update({"last_seen": now}).eq("email", email).execute()
-
-        return user
-
-
-
-    new_user = {
-
+    # Always have a safe local fallback so the app can continue even if
+    # Supabase is temporarily unreachable.
+    fallback_user = {
         "email": email,
-
-        "first_seen": now,
-
-        "last_seen": now,
-
         "paid_status": False,
-
         "total_generations": 0,
-
         "total_exports": 0,
-
     }
 
-    created = supabase.table("users").insert(new_user).execute()
+    if supabase is None:
+        return fallback_user
 
-    return created.data[0] if created.data else new_user
+    try:
+        now = datetime.now(timezone.utc).isoformat()
 
+        result = supabase.table("users").select("*").eq("email", email).execute()
+
+        if result.data:
+            user = result.data[0]
+
+            try:
+                supabase.table("users").update({
+                    "last_seen": now
+                }).eq("email", email).execute()
+            except Exception:
+                # A failed last_seen update should never block app access.
+                pass
+
+            return user
+
+        new_user = {
+            "email": email,
+            "first_seen": now,
+            "last_seen": now,
+            "paid_status": False,
+            "total_generations": 0,
+            "total_exports": 0,
+        }
+
+        created = supabase.table("users").insert(new_user).execute()
+        return created.data[0] if created.data else new_user
+
+    except Exception as e:
+        # Covers httpx.ConnectError, DNS/network failures, Supabase downtime,
+        # invalid endpoint connectivity, and other transient API errors.
+        # Do not crash the Streamlit app just because analytics/user tracking
+        # is unavailable.
+        st.warning(
+            "User tracking is temporarily unavailable, but you can continue using the app."
+        )
+        return fallback_user
 
 
 def increment_generation_count(email):
